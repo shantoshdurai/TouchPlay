@@ -1,5 +1,5 @@
-name: fh6_controller
-description: Phone-as-gamepad for Forza Horizon 6
+name: touchplay
+description: Turn your phone into a gamepad for any game
 
 publish_to: 'none'
 
