@@ -1,0 +1,4 @@
+vgamepad
+websockets
+qrcode[pil]
+pillow
