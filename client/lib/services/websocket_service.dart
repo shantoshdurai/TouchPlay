@@ -29,7 +29,7 @@ class SensitivitySettings {
     this.deadZone              = 0.08,
     this.mouseSensitivity      = 18.0,
     this.vibration             = true,
-    this.joyRadius             = 90.0,
+    this.joyRadius             = 1.0,   // scale factor: 1.0 = same size as left stick
   });
 }
 
