@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../services/websocket_service.dart';
 import '../services/websocket_service.dart' as ws;
 import '../widgets/analog_stick.dart';
@@ -20,6 +21,7 @@ class _ControllerScreenState extends State<ControllerScreen> {
   ws.ConnectionState _conn = ws.ConnectionState.disconnected;
   bool _mouseMode    = false;
   bool _showSettings = false;
+  bool _showTutorial = false;
 
   @override
   void initState() {
@@ -27,6 +29,15 @@ class _ControllerScreenState extends State<ControllerScreen> {
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
     _sub = WebSocketService.instance.stateStream.listen((s) => setState(() => _conn = s));
     WebSocketService.instance.init();
+    _initTutorial();
+  }
+
+  Future<void> _initTutorial() async {
+    final prefs = await SharedPreferences.getInstance();
+    if (!(prefs.getBool('tutorial_seen') ?? false)) {
+      await prefs.setBool('tutorial_seen', true);
+      if (mounted) setState(() => _showTutorial = true);
+    }
   }
 
   @override
@@ -99,16 +110,22 @@ class _ControllerScreenState extends State<ControllerScreen> {
             ),
           ),
 
-          // 5. Mouse Toggle Button in bottom center
+          // 5. Mouse toggle + R-Click pill (mouse mode only)
           Positioned(
             bottom: h * 0.05,
             left: 0, right: 0,
-            child: Align(
-              alignment: Alignment.center,
-              child: _MouseToggleButton(
-                mouseMode: _mouseMode,
-                onToggle: () => setState(() => _mouseMode = !_mouseMode),
-              ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                _MouseToggleButton(
+                  mouseMode: _mouseMode,
+                  onToggle: () => setState(() => _mouseMode = !_mouseMode),
+                ),
+                if (_mouseMode) ...[
+                  const SizedBox(width: 12),
+                  _MouseBtn(button: 'right', label: 'R-Click'),
+                ],
+              ],
             ),
           ),
 
@@ -167,15 +184,7 @@ class _ControllerScreenState extends State<ControllerScreen> {
                       child: _FaceButtons(),
                     ),
 
-                    if (_mouseMode)
-                      Positioned(
-                        bottom: h * 0.1, left: w * 0.05,
-                        child: Row(mainAxisSize: MainAxisSize.min, children: [
-                          _MouseBtn(button: 'left',  label: 'L-Click'),
-                          const SizedBox(width: 8),
-                          _MouseBtn(button: 'right', label: 'R-Click'),
-                        ]),
-                      ),
+                    // L-Click: double-tap right area. R-Click: pill next to MOUSE toggle.
                   ],
                 ),
               ),
@@ -185,6 +194,10 @@ class _ControllerScreenState extends State<ControllerScreen> {
           // 8. Settings overlay
           if (_showSettings)
             _SettingsPanel(onClose: () => setState(() => _showSettings = false)),
+
+          // 9. First-launch tutorial
+          if (_showTutorial)
+            _TutorialOverlay(onDismiss: () => setState(() => _showTutorial = false)),
         ],
       ),
     );
@@ -204,37 +217,89 @@ class _MassiveRightStick extends StatefulWidget {
 }
 
 class _MassiveRightStickState extends State<_MassiveRightStick> {
-  // Raw Listener approach: bypasses Flutter's gesture arena entirely.
-  // Buttons can never steal or cancel this pointer tracking.
-  int? _trackId;
+  int?      _trackId;
+  Offset?   _center;           // joystick origin spawned at first touch
+  Offset    _thumb = Offset.zero;
+  Offset?   _downPos;          // finger-down position for tap detection
+  DateTime? _lastTapTime;      // double-tap → left click (mouse mode)
+
+  static const _joyR        = 75.0;
+  static const _tapSlop      = 10.0;
+  static const _doubleTapMs  = 320;
 
   void _onDown(PointerDownEvent e) {
-    _trackId ??= e.pointer; // claim the first finger that lands
+    if (_trackId != null) return;
+    _trackId = e.pointer;
+    _downPos  = e.localPosition;
+
+    if (widget.mouseMode) {
+      final now = DateTime.now();
+      if (_lastTapTime != null &&
+          now.difference(_lastTapTime!).inMilliseconds < _doubleTapMs) {
+        WebSocketService.instance.send({'type': 'mouse_click', 'button': 'left'});
+        _lastTapTime = null;
+      }
+    } else {
+      // Spawn floating joystick wherever the finger lands
+      setState(() { _center = e.localPosition; _thumb = Offset.zero; });
+    }
   }
 
   void _onMove(PointerMoveEvent e) {
     if (e.pointer != _trackId) return;
-    if (e.delta.distance < 0.5) return;
 
-    // Always mouse_move — no ±1.0 cap, so 180s/360s are possible.
-    // Game mode = Camera Speed setting; MOUSE mode = Mouse Speed setting.
-    final double speed = widget.mouseMode
-        ? WebSocketService.instance.sensitivity.mouseSensitivity / 10.0
-        : WebSocketService.instance.sensitivity.rightStickSensitivity * 0.3;
+    if (widget.mouseMode) {
+      if (e.delta.distance < 0.5) return;
+      final sens = WebSocketService.instance.sensitivity.mouseSensitivity / 10.0;
+      WebSocketService.instance.send({
+        'type': 'mouse_move',
+        'dx': (e.delta.dx * sens).round(),
+        'dy': (e.delta.dy * sens).round(),
+      });
+      return;
+    }
+
+    // FF-style: distance from spawn point drives stick value
+    if (_center == null) return;
+    var offset = e.localPosition - _center!;
+    if (offset.distance > _joyR) offset = offset / offset.distance * _joyR;
+    setState(() => _thumb = offset);
+
+    final nx   = offset.dx / _joyR;
+    final ny   = -offset.dy / _joyR;
+    final mag  = offset.distance / _joyR;
+    final dead = WebSocketService.instance.sensitivity.deadZone;
+    final sens = WebSocketService.instance.sensitivity.rightStickSensitivity;
+    final x    = mag < dead ? 0.0 : (nx * sens).clamp(-1.0, 1.0);
+    final y    = mag < dead ? 0.0 : (ny * sens).clamp(-1.0, 1.0);
 
     WebSocketService.instance.send({
-      'type': 'mouse_move',
-      'dx': (e.delta.dx * speed).round(),
-      'dy': (e.delta.dy * speed).round(),
+      'type': 'right_stick',
+      'x': double.parse(x.toStringAsFixed(3)),
+      'y': double.parse(y.toStringAsFixed(3)),
     });
   }
 
   void _onUp(PointerUpEvent e) {
-    if (e.pointer == _trackId) _trackId = null;
+    if (e.pointer != _trackId) return;
+    _trackId = null;
+    if (widget.mouseMode) {
+      if (_downPos != null && (e.localPosition - _downPos!).distance < _tapSlop)
+        _lastTapTime = DateTime.now();
+      _downPos = null;
+    } else {
+      WebSocketService.instance.send({'type': 'right_stick', 'x': 0.0, 'y': 0.0});
+      setState(() { _center = null; _thumb = Offset.zero; });
+    }
   }
 
   void _onCancel(PointerCancelEvent e) {
-    if (e.pointer == _trackId) _trackId = null;
+    if (e.pointer != _trackId) return;
+    _trackId = null; _downPos = null;
+    if (!widget.mouseMode) {
+      WebSocketService.instance.send({'type': 'right_stick', 'x': 0.0, 'y': 0.0});
+      setState(() { _center = null; _thumb = Offset.zero; });
+    }
   }
 
   @override
@@ -244,8 +309,54 @@ class _MassiveRightStickState extends State<_MassiveRightStick> {
     onPointerMove:   _onMove,
     onPointerUp:     _onUp,
     onPointerCancel: _onCancel,
-    child: Container(color: Colors.transparent),
+    child: Stack(children: [
+      Container(color: Colors.transparent),
+      if (_center != null)
+        Positioned(
+          left: _center!.dx - _joyR,
+          top:  _center!.dy - _joyR,
+          child: _JoystickVisual(radius: _joyR, thumb: _thumb),
+        ),
+    ]),
   );
+}
+
+// ── Floating joystick visual ──────────────────────────────────────────────────
+
+class _JoystickVisual extends StatelessWidget {
+  const _JoystickVisual({required this.radius, required this.thumb});
+  final double radius;
+  final Offset thumb;
+  @override
+  Widget build(BuildContext context) => SizedBox(
+    width: radius * 2, height: radius * 2,
+    child: CustomPaint(painter: _JoystickPainter(radius: radius, thumb: thumb)),
+  );
+}
+
+class _JoystickPainter extends CustomPainter {
+  const _JoystickPainter({required this.radius, required this.thumb});
+  final double radius;
+  final Offset thumb;
+  @override
+  void paint(Canvas canvas, Size size) {
+    final c = Offset(size.width / 2, size.height / 2);
+    // Outer ring
+    canvas.drawCircle(c, radius - 2,
+      Paint()..color = Colors.white.withOpacity(0.12)..style = PaintingStyle.fill);
+    canvas.drawCircle(c, radius - 2,
+      Paint()..color = const Color(0xFF00D4FF).withOpacity(0.5)
+             ..style = PaintingStyle.stroke..strokeWidth = 1.5);
+    // Thumb
+    final tp = c + thumb;
+    final tr = radius * 0.38;
+    canvas.drawCircle(tp, tr,
+      Paint()..color = Colors.white.withOpacity(0.35)..style = PaintingStyle.fill);
+    canvas.drawCircle(tp, tr,
+      Paint()..color = const Color(0xFF00D4FF).withOpacity(0.9)
+             ..style = PaintingStyle.stroke..strokeWidth = 2);
+  }
+  @override bool shouldRepaint(_JoystickPainter o) => o.thumb != thumb;
 }
 
 class _MouseToggleButton extends StatelessWidget {
@@ -386,7 +497,7 @@ class _SettingsPanelState extends State<_SettingsPanel> {
                         setState(() => _leftStick = v);
                         WebSocketService.instance.sensitivity.stickSensitivity = v;
                       }),
-                      _sliderRow('Camera Speed', _rightStick, 1.0, 30.0, (v) {
+                      _sliderRow('Right Stick',  _rightStick, 0.5,  3.0, (v) {
                         setState(() => _rightStick = v);
                         WebSocketService.instance.sensitivity.rightStickSensitivity = v;
                       }),
@@ -664,6 +775,77 @@ class _SettingsBtn extends StatelessWidget {
         border: Border.all(color: Colors.white12, width: 1),
       ),
       child: const Icon(Icons.settings, color: Colors.white60, size: 16),
+    ),
+  );
+}
+
+// ── Tutorial overlay (first launch) ──────────────────────────────────────────
+
+class _TutorialOverlay extends StatefulWidget {
+  const _TutorialOverlay({required this.onDismiss});
+  final VoidCallback onDismiss;
+  @override State<_TutorialOverlay> createState() => _TutorialOverlayState();
+}
+
+class _TutorialOverlayState extends State<_TutorialOverlay>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _fade;
+
+  @override
+  void initState() {
+    super.initState();
+    _fade = AnimationController(vsync: this, value: 1.0,
+        duration: const Duration(milliseconds: 600));
+    Future.delayed(const Duration(seconds: 3), _dismiss);
+  }
+  @override void dispose() { _fade.dispose(); super.dispose(); }
+
+  Future<void> _dismiss() async {
+    if (!mounted) return;
+    await _fade.reverse();
+    if (mounted) widget.onDismiss();
+  }
+
+  Widget _half(String title, String sub, IconData icon, Alignment align) =>
+    Align(alignment: align, child: Padding(
+      padding: const EdgeInsets.all(28),
+      child: Column(mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: align == Alignment.centerLeft
+            ? CrossAxisAlignment.start : CrossAxisAlignment.end,
+        children: [
+          Icon(icon, color: Colors.white.withOpacity(0.45), size: 34),
+          const SizedBox(height: 8),
+          Text(title, style: TextStyle(color: Colors.white.withOpacity(0.6),
+              fontSize: 13, fontWeight: FontWeight.bold, letterSpacing: 1.5)),
+          Text(sub, style: TextStyle(color: Colors.white.withOpacity(0.3),
+              fontSize: 10, letterSpacing: 0.5)),
+        ],
+      ),
+    ));
+
+  @override
+  Widget build(BuildContext context) => FadeTransition(
+    opacity: _fade,
+    child: GestureDetector(
+      onTap: _dismiss,
+      child: Container(
+        color: Colors.black.withOpacity(0.55),
+        child: Stack(children: [
+          // Vertical divider
+          Center(child: Container(width: 1, color: Colors.white.withOpacity(0.1))),
+          // Left label
+          _half('LEFT STICK', 'movement', Icons.sports_esports, Alignment.centerLeft),
+          // Right label
+          _half('RIGHT STICK', 'touch anywhere → joystick spawns',
+              Icons.touch_app, Alignment.centerRight),
+          // Bottom hint
+          Align(alignment: Alignment.bottomCenter, child: Padding(
+            padding: const EdgeInsets.only(bottom: 24),
+            child: Text('tap to dismiss',
+              style: TextStyle(color: Colors.white.withOpacity(0.2), fontSize: 10)),
+          )),
+        ]),
+      ),
     ),
   );
 }
