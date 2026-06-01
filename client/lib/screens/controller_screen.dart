@@ -213,42 +213,28 @@ class _MassiveRightStickState extends State<_MassiveRightStick> {
   }
 
   void _onMove(PointerMoveEvent e) {
-    if (e.pointer != _trackId) return; // ignore other fingers
+    if (e.pointer != _trackId) return;
+    if (e.delta.distance < 0.5) return;
 
-    if (widget.mouseMode) {
-      final sens = WebSocketService.instance.sensitivity.mouseSensitivity;
-      WebSocketService.instance.send({
-        'type': 'mouse_move',
-        'dx': (e.delta.dx * sens / 10.0).round(),
-        'dy': (e.delta.dy * sens / 10.0).round(),
-      });
-      return;
-    }
-
-    if (e.delta.distance < 0.5) return; // ignore sub-pixel jitter
-
-    final sens  = WebSocketService.instance.sensitivity.rightStickSensitivity;
-    const scale = 0.14;
-    final x = (e.delta.dx  * scale * sens).clamp(-1.0, 1.0);
-    final y = (-e.delta.dy * scale * sens).clamp(-1.0, 1.0);
+    // Always mouse_move — no ±1.0 cap, so 180s/360s are possible.
+    // Game mode = Camera Speed setting; MOUSE mode = Mouse Speed setting.
+    final double speed = widget.mouseMode
+        ? WebSocketService.instance.sensitivity.mouseSensitivity / 10.0
+        : WebSocketService.instance.sensitivity.rightStickSensitivity * 0.3;
 
     WebSocketService.instance.send({
-      'type': 'right_stick',
-      'x': double.parse(x.toStringAsFixed(3)),
-      'y': double.parse(y.toStringAsFixed(3)),
+      'type': 'mouse_move',
+      'dx': (e.delta.dx * speed).round(),
+      'dy': (e.delta.dy * speed).round(),
     });
   }
 
   void _onUp(PointerUpEvent e) {
-    if (e.pointer != _trackId) return;
-    _trackId = null;
-    WebSocketService.instance.send({'type': 'right_stick', 'x': 0.0, 'y': 0.0});
+    if (e.pointer == _trackId) _trackId = null;
   }
 
   void _onCancel(PointerCancelEvent e) {
-    if (e.pointer != _trackId) return;
-    _trackId = null;
-    WebSocketService.instance.send({'type': 'right_stick', 'x': 0.0, 'y': 0.0});
+    if (e.pointer == _trackId) _trackId = null;
   }
 
   @override
@@ -400,7 +386,7 @@ class _SettingsPanelState extends State<_SettingsPanel> {
                         setState(() => _leftStick = v);
                         WebSocketService.instance.sensitivity.stickSensitivity = v;
                       }),
-                      _sliderRow('Right Stick', _rightStick, 0.5,  8.0,  (v) {
+                      _sliderRow('Camera Speed', _rightStick, 1.0, 30.0, (v) {
                         setState(() => _rightStick = v);
                         WebSocketService.instance.sensitivity.rightStickSensitivity = v;
                       }),
