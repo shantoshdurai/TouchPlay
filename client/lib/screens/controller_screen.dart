@@ -56,6 +56,13 @@ class _ControllerScreenState extends State<ControllerScreen> {
           // 1. The glowing background
           _BgGlow(),
 
+          // 1b. Center split line
+          Positioned(
+            left: w * 0.5,
+            top: 0, bottom: 0,
+            child: Container(width: 1, color: Colors.white.withOpacity(0.07)),
+          ),
+
           // 2. The massive right/middle touch zone for the Right Stick
           Positioned(
             left: w * 0.35,
@@ -223,7 +230,9 @@ class _MassiveRightStickState extends State<_MassiveRightStick> {
   Offset?   _downPos;          // finger-down position for tap detection
   DateTime? _lastTapTime;      // double-tap → left click (mouse mode)
 
-  static const _joyR        = 75.0;
+  // Live from settings so the slider works instantly
+  double get _joyR => WebSocketService.instance.sensitivity.joyRadius;
+
   static const _tapSlop      = 10.0;
   static const _doubleTapMs  = 320;
 
@@ -309,54 +318,61 @@ class _MassiveRightStickState extends State<_MassiveRightStick> {
     onPointerMove:   _onMove,
     onPointerUp:     _onUp,
     onPointerCancel: _onCancel,
-    child: Stack(children: [
-      Container(color: Colors.transparent),
-      if (_center != null)
-        Positioned(
-          left: _center!.dx - _joyR,
-          top:  _center!.dy - _joyR,
-          child: _JoystickVisual(radius: _joyR, thumb: _thumb),
-        ),
-    ]),
+    // CustomPaint on the full area — no Positioned, so never clips at edges
+    child: CustomPaint(
+      painter: _center != null
+          ? _JoystickPainter(center: _center!, thumb: _thumb, radius: _joyR)
+          : null,
+      child: Container(color: Colors.transparent),
+    ),
   );
 }
 
-// ── Floating joystick visual ──────────────────────────────────────────────────
-
-class _JoystickVisual extends StatelessWidget {
-  const _JoystickVisual({required this.radius, required this.thumb});
-  final double radius;
-  final Offset thumb;
-  @override
-  Widget build(BuildContext context) => SizedBox(
-    width: radius * 2, height: radius * 2,
-    child: CustomPaint(painter: _JoystickPainter(radius: radius, thumb: thumb)),
-  );
-}
+// ── Floating joystick painter (full-canvas, matches left-stick style) ─────────
 
 class _JoystickPainter extends CustomPainter {
-  const _JoystickPainter({required this.radius, required this.thumb});
-  final double radius;
+  const _JoystickPainter({
+    required this.center, required this.thumb, required this.radius,
+  });
+  final Offset center;
   final Offset thumb;
+  final double radius;
+
   @override
   void paint(Canvas canvas, Size size) {
-    final c = Offset(size.width / 2, size.height / 2);
-    // Outer ring
-    canvas.drawCircle(c, radius - 2,
-      Paint()..color = Colors.white.withOpacity(0.12)..style = PaintingStyle.fill);
-    canvas.drawCircle(c, radius - 2,
-      Paint()..color = const Color(0xFF00D4FF).withOpacity(0.5)
-             ..style = PaintingStyle.stroke..strokeWidth = 1.5);
+    const neutral = Color(0x66FFFFFF);
+    final ring = Paint()..color = neutral..style = PaintingStyle.stroke..strokeWidth = 1.0;
+
+    // Two rings — same as left AnalogStick
+    canvas.drawCircle(center, radius,       ring);
+    canvas.drawCircle(center, radius * 0.7, ring);
+
     // Thumb
-    final tp = c + thumb;
-    final tr = radius * 0.38;
-    canvas.drawCircle(tp, tr,
-      Paint()..color = Colors.white.withOpacity(0.35)..style = PaintingStyle.fill);
-    canvas.drawCircle(tp, tr,
-      Paint()..color = const Color(0xFF00D4FF).withOpacity(0.9)
-             ..style = PaintingStyle.stroke..strokeWidth = 2);
+    final tp     = center + thumb;
+    final thumbR = radius * 0.38;
+
+    // Gray fill
+    canvas.drawCircle(tp, thumbR,
+        Paint()..color = const Color(0xFFC0C0C0)..style = PaintingStyle.fill);
+
+    // Dot texture — identical to _StickPainter in analog_stick.dart
+    final dot     = Paint()..color = const Color(0xFF888888)..style = PaintingStyle.fill;
+    final spacing = thumbR * 0.25;
+    final sx      = tp.dx - 2 * spacing;
+    final sy      = tp.dy - 2 * spacing;
+    for (int i = 0; i < 5; i++) {
+      for (int j = 0; j < 5; j++) {
+        final dx = sx + j * spacing - tp.dx;
+        final dy = sy + i * spacing - tp.dy;
+        if (dx * dx + dy * dy < (thumbR * 0.6) * (thumbR * 0.6))
+          canvas.drawCircle(Offset(sx + j * spacing, sy + i * spacing), 1.5, dot);
+      }
+    }
   }
-  @override bool shouldRepaint(_JoystickPainter o) => o.thumb != thumb;
+
+  @override
+  bool shouldRepaint(_JoystickPainter o) =>
+      o.center != center || o.thumb != thumb || o.radius != radius;
 }
 
 class _MouseToggleButton extends StatelessWidget {
@@ -451,6 +467,7 @@ class _SettingsPanelState extends State<_SettingsPanel> {
   late double _dead;
   late double _mouse;
   late bool   _vibration;
+  late double _joyRadius;
 
   @override
   void initState() {
@@ -461,6 +478,7 @@ class _SettingsPanelState extends State<_SettingsPanel> {
     _dead       = s.deadZone;
     _mouse      = s.mouseSensitivity;
     _vibration  = s.vibration;
+    _joyRadius  = s.joyRadius;
   }
 
   @override
@@ -500,6 +518,10 @@ class _SettingsPanelState extends State<_SettingsPanel> {
                       _sliderRow('Right Stick',  _rightStick, 0.5,  3.0, (v) {
                         setState(() => _rightStick = v);
                         WebSocketService.instance.sensitivity.rightStickSensitivity = v;
+                      }),
+                      _sliderRow('Stick Size', _joyRadius, 50.0, 160.0, (v) {
+                        setState(() => _joyRadius = v);
+                        WebSocketService.instance.sensitivity.joyRadius = v;
                       }),
                       _sliderRow('Dead Zone',   _dead,       0.01, 0.25, (v) {
                         setState(() => _dead = v);

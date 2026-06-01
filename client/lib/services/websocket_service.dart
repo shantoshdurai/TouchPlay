@@ -21,6 +21,7 @@ class SensitivitySettings {
   double deadZone;
   double mouseSensitivity;
   bool   vibration;
+  double joyRadius;
 
   SensitivitySettings({
     this.stickSensitivity      = 1.0,
@@ -28,6 +29,7 @@ class SensitivitySettings {
     this.deadZone              = 0.08,
     this.mouseSensitivity      = 18.0,
     this.vibration             = true,
+    this.joyRadius             = 90.0,
   });
 }
 
