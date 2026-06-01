@@ -221,7 +221,7 @@ class _MassiveRightStickState extends State<_MassiveRightStick> {
     if (d.delta.distance < 0.5) return; // skip sub-pixel jitter
 
     final sens  = WebSocketService.instance.sensitivity.rightStickSensitivity;
-    const scale = 0.09; // logical-px per frame → 0..1 range
+    const scale = 0.14; // logical-px per frame → 0..1 range
 
     final x = (d.delta.dx  * scale * sens).clamp(-1.0, 1.0);
     final y = (-d.delta.dy * scale * sens).clamp(-1.0, 1.0);
@@ -384,7 +384,7 @@ class _SettingsPanelState extends State<_SettingsPanel> {
                         setState(() => _leftStick = v);
                         WebSocketService.instance.sensitivity.stickSensitivity = v;
                       }),
-                      _sliderRow('Right Stick', _rightStick, 0.3,  2.0,  (v) {
+                      _sliderRow('Right Stick', _rightStick, 0.5,  8.0,  (v) {
                         setState(() => _rightStick = v);
                         WebSocketService.instance.sensitivity.rightStickSensitivity = v;
                       }),
