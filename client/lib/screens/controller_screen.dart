@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../services/websocket_service.dart';
 import '../services/websocket_service.dart' as ws;
+import '../services/device_stats.dart';
 import '../widgets/trigger_button.dart';
 import '../widgets/action_button.dart';
 
@@ -26,6 +27,7 @@ class _ControllerScreenState extends State<ControllerScreen> {
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
     _sub = WebSocketService.instance.stateStream.listen((s) => setState(() => _conn = s));
     WebSocketService.instance.init();
+    DeviceStats.instance.start();
     _initTutorial();
   }
 
@@ -38,7 +40,7 @@ class _ControllerScreenState extends State<ControllerScreen> {
   }
 
   @override
-  void dispose() { _sub.cancel(); super.dispose(); }
+  void dispose() { _sub.cancel(); DeviceStats.instance.stop(); super.dispose(); }
 
   @override
   Widget build(BuildContext context) {
@@ -762,7 +764,9 @@ class _ConnChip extends StatefulWidget {
 class _ConnChipState extends State<_ConnChip> with SingleTickerProviderStateMixin {
   late final AnimationController _pulse;
   StreamSubscription<int>? _latSub;
+  StreamSubscription<DeviceReading>? _devSub;
   int? _latency;
+  DeviceReading? _dev;
 
   @override
   void initState() {
@@ -773,17 +777,39 @@ class _ConnChipState extends State<_ConnChip> with SingleTickerProviderStateMixi
     _latSub  = WebSocketService.instance.latencyStream.listen((ms) {
       if (mounted) setState(() => _latency = ms);
     });
+    _dev    = DeviceStats.instance.last;
+    _devSub = DeviceStats.instance.stream.listen((r) {
+      if (mounted) setState(() => _dev = r);
+    });
   }
 
   @override
-  void dispose() { _latSub?.cancel(); _pulse.dispose(); super.dispose(); }
+  void dispose() {
+    _latSub?.cancel(); _devSub?.cancel(); _pulse.dispose(); super.dispose();
+  }
 
-  // Latency → color: green good, amber ok, red laggy
   Color _latColor(int ms) {
-    if (ms < 40)  return const Color(0xFF1DB954);
-    if (ms < 90)  return const Color(0xFFF9A825);
+    if (ms < 40) return const Color(0xFF1DB954);
+    if (ms < 90) return const Color(0xFFF9A825);
     return const Color(0xFFE53935);
   }
+
+  Color _heatColor(double c) {
+    if (c < 38) return const Color(0xFF1DB954);
+    if (c < 43) return const Color(0xFFF9A825);
+    return const Color(0xFFE53935);
+  }
+
+  Color _battColor(int p) =>
+      p <= 15 ? const Color(0xFFE53935) : Colors.white60;
+
+  Widget _sep() => const Padding(
+    padding: EdgeInsets.symmetric(horizontal: 6),
+    child: Text('·', style: TextStyle(color: Colors.white24, fontSize: 11)),
+  );
+
+  Widget _stat(String text, Color color, {FontWeight w = FontWeight.normal}) =>
+      Text(text, style: TextStyle(color: color, fontSize: 10, fontWeight: w));
 
   @override
   Widget build(BuildContext context) {
@@ -809,6 +835,7 @@ class _ConnChipState extends State<_ConnChip> with SingleTickerProviderStateMixi
       decoration: BoxDecoration(shape: BoxShape.circle, color: dotColor),
     );
 
+    final dev = _dev;
     return GestureDetector(
       onTap: widget.onTap,
       child: Container(
@@ -823,10 +850,16 @@ class _ConnChipState extends State<_ConnChip> with SingleTickerProviderStateMixi
               ? FadeTransition(opacity: _pulse, child: dot)
               : dot,
           const SizedBox(width: 6),
-          Text(label, style: TextStyle(
-            color: labelColor, fontSize: 10,
-            fontWeight: connected && _latency != null ? FontWeight.w600 : FontWeight.normal,
-          )),
+          _stat(label, labelColor,
+              w: connected && _latency != null ? FontWeight.w600 : FontWeight.normal),
+          if (dev != null && dev.hasTemp) ...[
+            _sep(),
+            _stat('${dev.tempC.toStringAsFixed(0)}°', _heatColor(dev.tempC)),
+          ],
+          if (dev != null && dev.hasBattery) ...[
+            _sep(),
+            _stat('${dev.battery}%', _battColor(dev.battery)),
+          ],
         ]),
       ),
     );
