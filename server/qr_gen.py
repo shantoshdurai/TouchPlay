@@ -34,9 +34,19 @@ def generate_qr(port: int = 8765) -> str:
     ip = get_best_ip()
     url = f"ws://{ip}:{port}"
 
-    img = qrcode.make(url)
-    img.save("qr.png")
+    # The QR code is printed directly to the terminal
 
-    print(f"[QR] WebSocket URL: {url}")
-    print(f"[QR] QR code saved to qr.png")
+    # Print the QR code directly to the terminal
+    import sys
+    import io
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+    
+    qr = qrcode.QRCode()
+    qr.add_data(url)
+    qr.make()
+    
+    print(f"\n[ SCAN THIS QR CODE OR TYPE THE IP: {ip} ]\n")
+    qr.print_ascii()
+    print("\n")
+
     return ip

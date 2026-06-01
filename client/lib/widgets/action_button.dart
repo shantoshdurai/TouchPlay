@@ -2,15 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../services/websocket_service.dart';
 
-// Xbox face button colors
-const _faceColors = {
-  'A': Color(0xFF1DB954),
-  'B': Color(0xFFE53935),
-  'X': Color(0xFF1565C0),
-  'Y': Color(0xFFF9A825),
-};
-
-const _neutralColor = Color(0xFF3A3A55);
+const _neutralColor = Color(0x66FFFFFF); // Semi-transparent white border
 
 class ActionButton extends StatefulWidget {
   const ActionButton({
@@ -37,7 +29,155 @@ class _ActionButtonState extends State<ActionButton>
   bool _pressed = false;
   late AnimationController _scale;
 
-  Color get _base => widget.color ?? _faceColors[widget.button] ?? _neutralColor;
+  @override
+  void initState() {
+    super.initState();
+    _scale = AnimationController(
+        vsync: this,
+        duration: const Duration(milliseconds: 60),
+        lowerBound: 0.85,
+        upperBound: 1.0)
+      ..value = 1.0;
+  }
+
+  @override
+  void dispose() {
+    _scale.dispose();
+    super.dispose();
+  }
+
+  void _down() {
+    if (_pressed) return;
+    setState(() => _pressed = true);
+    _scale.reverse();
+    WebSocketService.instance.send({'type': 'button_press', 'button': widget.button});
+    HapticFeedback.mediumImpact();
+  }
+
+  void _up() {
+    if (!_pressed) return;
+    setState(() => _pressed = false);
+    _scale.forward();
+    WebSocketService.instance.send({'type': 'button_release', 'button': widget.button});
+    HapticFeedback.selectionClick();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTapDown: (_) => _down(),
+      onTapUp: (_) => _up(),
+      onTapCancel: _up,
+      onPanDown: (_) => _down(),
+      onPanEnd: (_) => _up(),
+      onPanCancel: _up,
+      child: ScaleTransition(
+        scale: _scale,
+        child: Container(
+          width: widget.size,
+          height: widget.size,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: _pressed ? Colors.white24 : Colors.transparent,
+            border: Border.all(
+              color: _pressed ? Colors.white : _neutralColor,
+              width: 1.5,
+            ),
+          ),
+          child: Center(
+            child: widget.icon != null
+                ? Icon(widget.icon,
+                    color: Colors.white,
+                    size: widget.size * 0.42)
+                : Text(
+                    widget.label ?? widget.button,
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: widget.size * 0.4,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Bumper button (LB / RB) — styled same as ActionButton now (circle)
+class BumperButton extends StatelessWidget {
+  const BumperButton({
+    super.key,
+    required this.button,
+    required this.label,
+    this.width = 50.0,
+  });
+
+  final String button;
+  final String label;
+  final double width;
+
+  @override
+  Widget build(BuildContext context) {
+    return ActionButton(
+      button: button,
+      label: label,
+      size: width,
+    );
+  }
+}
+
+/// D-Pad — 4 distinct circular buttons (matching reference image)
+class DPad extends StatelessWidget {
+  const DPad({super.key, this.size = 140.0});
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    final btnSize = size * 0.35;
+    final offset = size / 2 - btnSize / 2;
+
+    return SizedBox(
+      width: size,
+      height: size,
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          Positioned(
+            top: 0,
+            child: _DPadBtn(button: 'DPAD_UP', icon: Icons.keyboard_arrow_up, size: btnSize),
+          ),
+          Positioned(
+            bottom: 0,
+            child: _DPadBtn(button: 'DPAD_DOWN', icon: Icons.keyboard_arrow_down, size: btnSize),
+          ),
+          Positioned(
+            left: 0,
+            child: _DPadBtn(button: 'DPAD_LEFT', icon: Icons.keyboard_arrow_left, size: btnSize),
+          ),
+          Positioned(
+            right: 0,
+            child: _DPadBtn(button: 'DPAD_RIGHT', icon: Icons.keyboard_arrow_right, size: btnSize),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _DPadBtn extends StatefulWidget {
+  const _DPadBtn({required this.button, required this.icon, required this.size});
+  final String button;
+  final IconData icon;
+  final double size;
+
+  @override
+  State<_DPadBtn> createState() => _DPadBtnState();
+}
+
+class _DPadBtnState extends State<_DPadBtn> with SingleTickerProviderStateMixin {
+  bool _pressed = false;
+  late AnimationController _scale;
 
   @override
   void initState() {
@@ -61,7 +201,7 @@ class _ActionButtonState extends State<ActionButton>
     setState(() => _pressed = true);
     _scale.reverse();
     WebSocketService.instance.send({'type': 'button_press', 'button': widget.button});
-    HapticFeedback.lightImpact();
+    HapticFeedback.heavyImpact();
   }
 
   void _up() {
@@ -69,6 +209,7 @@ class _ActionButtonState extends State<ActionButton>
     setState(() => _pressed = false);
     _scale.forward();
     WebSocketService.instance.send({'type': 'button_release', 'button': widget.button});
+    HapticFeedback.selectionClick();
   }
 
   @override
@@ -87,259 +228,22 @@ class _ActionButtonState extends State<ActionButton>
           height: widget.size,
           decoration: BoxDecoration(
             shape: BoxShape.circle,
-            color: _pressed ? _base : _base.withOpacity(0.28),
-            border: Border.all(color: _base, width: 2),
-            boxShadow: _pressed
-                ? [BoxShadow(color: _base.withOpacity(0.55), blurRadius: 14, spreadRadius: 2)]
-                : [],
-          ),
-          child: Center(
-            child: widget.icon != null
-                ? Icon(widget.icon, color: Colors.white, size: widget.size * 0.42)
-                : Text(
-                    widget.label ?? widget.button,
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: widget.size * 0.3,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// Bumper button (LB / RB) — rounded pill shape
-class BumperButton extends StatefulWidget {
-  const BumperButton({
-    super.key,
-    required this.button,
-    required this.label,
-    this.width = 80.0,
-    this.height = 32.0,
-  });
-
-  final String button;
-  final String label;
-  final double width;
-  final double height;
-
-  @override
-  State<BumperButton> createState() => _BumperButtonState();
-}
-
-class _BumperButtonState extends State<BumperButton> {
-  bool _pressed = false;
-
-  void _down() {
-    if (_pressed) return;
-    setState(() => _pressed = true);
-    WebSocketService.instance.send({'type': 'button_press', 'button': widget.button});
-    HapticFeedback.lightImpact();
-  }
-
-  void _up() {
-    if (!_pressed) return;
-    setState(() => _pressed = false);
-    WebSocketService.instance.send({'type': 'button_release', 'button': widget.button});
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTapDown: (_) => _down(),
-      onTapUp: (_) => _up(),
-      onTapCancel: _up,
-      onPanDown: (_) => _down(),
-      onPanEnd: (_) => _up(),
-      onPanCancel: _up,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 60),
-        width: widget.width,
-        height: widget.height,
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(widget.height / 2),
-          color: _pressed ? const Color(0xFF00D4FF) : const Color(0xFF252538),
-          border: Border.all(
-            color: _pressed ? const Color(0xFF00D4FF) : const Color(0xFF4A4A6A),
-            width: 1.5,
-          ),
-          boxShadow: _pressed
-              ? [BoxShadow(color: const Color(0xFF00D4FF).withOpacity(0.45), blurRadius: 10)]
-              : [],
-        ),
-        child: Center(
-          child: Text(
-            widget.label,
-            style: TextStyle(
-              color: _pressed ? Colors.black : Colors.white70,
-              fontWeight: FontWeight.bold,
-              fontSize: 13,
-              letterSpacing: 1.5,
+            color: _pressed ? Colors.white24 : Colors.transparent,
+            border: Border.all(
+              color: _pressed ? Colors.white : _neutralColor,
+              width: 1.5,
             ),
           ),
+          child: Center(
+            child: Icon(widget.icon, color: Colors.white, size: widget.size * 0.7),
+          ),
         ),
       ),
     );
   }
 }
 
-/// D-Pad — cross shape with 8-directional support via diagonal detection
-class DPad extends StatefulWidget {
-  const DPad({super.key, this.size = 108.0});
-  final double size;
-
-  @override
-  State<DPad> createState() => _DPadState();
-}
-
-class _DPadState extends State<DPad> {
-  final Set<String> _active = {};
-
-  void _press(String btn) {
-    if (_active.contains(btn)) return;
-    _active.add(btn);
-    WebSocketService.instance.send({'type': 'button_press', 'button': btn});
-    HapticFeedback.lightImpact();
-  }
-
-  void _release(String btn) {
-    if (!_active.remove(btn)) return;
-    WebSocketService.instance.send({'type': 'button_release', 'button': btn});
-  }
-
-  void _releaseAll() {
-    for (final b in List.of(_active)) {
-      _release(b);
-    }
-  }
-
-  String? _hitZone(Offset local) {
-    final arm = widget.size / 3;
-    final cx = widget.size / 2, cy = widget.size / 2;
-    final dx = local.dx - cx, dy = local.dy - cy;
-    final adx = dx.abs(), ady = dy.abs();
-
-    if (adx < arm / 2 && ady < arm / 2) return null; // center
-
-    if (adx > ady * 1.8) return dx > 0 ? 'DPAD_RIGHT' : 'DPAD_LEFT';
-    if (ady > adx * 1.8) return dy > 0 ? 'DPAD_DOWN' : 'DPAD_UP';
-
-    // diagonal — press both
-    return null;
-  }
-
-  List<String> _hitZones(Offset local) {
-    final arm = widget.size / 3;
-    final cx = widget.size / 2, cy = widget.size / 2;
-    final dx = local.dx - cx, dy = local.dy - cy;
-    final adx = dx.abs(), ady = dy.abs();
-
-    if (adx < arm * 0.3 && ady < arm * 0.3) return [];
-    if (adx > ady * 1.5 && ady < arm) return [dx > 0 ? 'DPAD_RIGHT' : 'DPAD_LEFT'];
-    if (ady > adx * 1.5 && adx < arm) return [dy > 0 ? 'DPAD_DOWN' : 'DPAD_UP'];
-
-    // diagonal
-    return [
-      dx > 0 ? 'DPAD_RIGHT' : 'DPAD_LEFT',
-      dy > 0 ? 'DPAD_DOWN' : 'DPAD_UP',
-    ];
-  }
-
-  void _handlePan(Offset local) {
-    final wanted = _hitZones(local).toSet();
-    final current = Set.of(_active);
-    for (final b in current.difference(wanted)) _release(b);
-    for (final b in wanted.difference(current)) _press(b);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final s = widget.size;
-    final arm = s / 3;
-    return GestureDetector(
-      onPanDown: (d) => _handlePan(d.localPosition),
-      onPanUpdate: (d) => _handlePan(d.localPosition),
-      onPanEnd: (_) => _releaseAll(),
-      onPanCancel: _releaseAll,
-      child: SizedBox(
-        width: s,
-        height: s,
-        child: CustomPaint(
-          painter: _DPadPainter(active: Set.of(_active), arm: arm),
-        ),
-      ),
-    );
-  }
-}
-
-class _DPadPainter extends CustomPainter {
-  const _DPadPainter({required this.active, required this.arm});
-  final Set<String> active;
-  final double arm;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final cx = size.width / 2, cy = size.height / 2;
-    final fill = Paint()..style = PaintingStyle.fill;
-    final stroke = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.5
-      ..color = const Color(0xFF4A4A6A);
-
-    void drawArm(Rect r, String btn) {
-      fill.color = active.contains(btn)
-          ? const Color(0xFF4A4AFF).withOpacity(0.85)
-          : const Color(0xFF252538);
-      canvas.drawRRect(RRect.fromRectAndRadius(r, const Radius.circular(4)), fill);
-      canvas.drawRRect(RRect.fromRectAndRadius(r, const Radius.circular(4)), stroke);
-    }
-
-    // Up
-    drawArm(Rect.fromLTWH(cx - arm / 2, cy - arm * 1.5, arm, arm), 'DPAD_UP');
-    // Down
-    drawArm(Rect.fromLTWH(cx - arm / 2, cy + arm / 2, arm, arm), 'DPAD_DOWN');
-    // Left
-    drawArm(Rect.fromLTWH(cx - arm * 1.5, cy - arm / 2, arm, arm), 'DPAD_LEFT');
-    // Right
-    drawArm(Rect.fromLTWH(cx + arm / 2, cy - arm / 2, arm, arm), 'DPAD_RIGHT');
-    // Center cap
-    fill.color = const Color(0xFF1A1A2A);
-    canvas.drawCircle(Offset(cx, cy), arm * 0.38, fill);
-
-    // Arrow icons
-    _drawArrow(canvas, Offset(cx, cy - arm), 0, active.contains('DPAD_UP'));
-    _drawArrow(canvas, Offset(cx, cy + arm), pi, active.contains('DPAD_DOWN'));
-    _drawArrow(canvas, Offset(cx - arm, cy), -pi / 2, active.contains('DPAD_LEFT'));
-    _drawArrow(canvas, Offset(cx + arm, cy), pi / 2, active.contains('DPAD_RIGHT'));
-  }
-
-  void _drawArrow(Canvas canvas, Offset center, double rotation, bool active) {
-    final paint = Paint()
-      ..color = active ? Colors.white : Colors.white30
-      ..style = PaintingStyle.fill;
-    final path = Path()
-      ..moveTo(0, -arm * 0.22)
-      ..lineTo(arm * 0.18, arm * 0.12)
-      ..lineTo(-arm * 0.18, arm * 0.12)
-      ..close();
-    canvas.save();
-    canvas.translate(center.dx, center.dy);
-    canvas.rotate(rotation);
-    canvas.drawPath(path, paint);
-    canvas.restore();
-  }
-
-  @override
-  bool shouldRepaint(_DPadPainter old) => old.active != active;
-}
-
-// Needed for rotation math
-const pi = 3.14159265358979;
-
-/// Small center buttons (View/Back, Menu/Start)
+/// Small center buttons (View/Back, Menu/Start) - pill shaped
 class CenterButton extends StatefulWidget {
   const CenterButton({
     super.key,
@@ -364,12 +268,14 @@ class _CenterButtonState extends State<CenterButton> {
     if (_pressed) return;
     setState(() => _pressed = true);
     WebSocketService.instance.send({'type': 'button_press', 'button': widget.button});
+    HapticFeedback.lightImpact();
   }
 
   void _up() {
     if (!_pressed) return;
     setState(() => _pressed = false);
     WebSocketService.instance.send({'type': 'button_release', 'button': widget.button});
+    HapticFeedback.selectionClick();
   }
 
   @override
@@ -380,22 +286,22 @@ class _CenterButtonState extends State<CenterButton> {
       onTapCancel: _up,
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 60),
-        width: widget.size,
+        width: widget.size * 2,
         height: widget.size,
         decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          color: _pressed ? const Color(0xFF3A3A58) : const Color(0xFF1E1E30),
+          borderRadius: BorderRadius.circular(widget.size / 2),
+          color: _pressed ? Colors.white24 : Colors.transparent,
           border: Border.all(
-            color: _pressed ? const Color(0xFF8888BB) : const Color(0xFF3A3A55),
+            color: _pressed ? Colors.white : _neutralColor,
             width: 1.5,
           ),
         ),
         child: Center(
           child: widget.icon != null
-              ? Icon(widget.icon, color: Colors.white60, size: widget.size * 0.44)
+              ? Icon(widget.icon, color: Colors.white, size: widget.size * 0.6)
               : Text(
                   widget.label ?? '',
-                  style: TextStyle(color: Colors.white60, fontSize: widget.size * 0.32),
+                  style: TextStyle(color: Colors.white, fontSize: widget.size * 0.4),
                 ),
         ),
       ),
@@ -419,12 +325,14 @@ class _GuideButtonState extends State<GuideButton> {
     if (_pressed) return;
     setState(() => _pressed = true);
     WebSocketService.instance.send({'type': 'button_press', 'button': 'GUIDE'});
+    HapticFeedback.mediumImpact();
   }
 
   void _up() {
     if (!_pressed) return;
     setState(() => _pressed = false);
     WebSocketService.instance.send({'type': 'button_release', 'button': 'GUIDE'});
+    HapticFeedback.selectionClick();
   }
 
   @override
@@ -439,19 +347,16 @@ class _GuideButtonState extends State<GuideButton> {
         height: widget.size,
         decoration: BoxDecoration(
           shape: BoxShape.circle,
-          gradient: RadialGradient(
-            colors: _pressed
-                ? [const Color(0xFFFFFFFF), const Color(0xFF8888CC)]
-                : [const Color(0xFF6A6A9A), const Color(0xFF2A2A40)],
+          color: _pressed ? Colors.white24 : Colors.transparent,
+          border: Border.all(
+            color: _pressed ? Colors.white : _neutralColor,
+            width: 1.5,
           ),
-          boxShadow: _pressed
-              ? [BoxShadow(color: Colors.white.withOpacity(0.5), blurRadius: 16)]
-              : [],
         ),
         child: Center(
           child: Icon(
-            Icons.sports_esports,
-            color: _pressed ? const Color(0xFF1A1A30) : const Color(0xFFCCCCFF),
+            Icons.games, // generic gamepad icon
+            color: Colors.white,
             size: widget.size * 0.50,
           ),
         ),

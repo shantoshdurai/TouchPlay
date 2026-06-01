@@ -1,7 +1,9 @@
 import 'dart:async';
+import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
+import 'package:permission_handler/permission_handler.dart';
 import '../services/websocket_service.dart';
 import '../services/websocket_service.dart' as ws;
 import '../widgets/analog_stick.dart';
@@ -41,64 +43,132 @@ class _ControllerScreenState extends State<ControllerScreen> {
       backgroundColor: const Color(0xFF080810),
       body: Stack(
         children: [
+          // 1. The glowing background
           _BgGlow(),
-          Column(
-            children: [
-              // ── Status bar ───────────────────────────────────────────
-              _StatusBar(
+
+          // 2. The massive right/middle touch zone for the Right Stick
+          Positioned(
+            left: w * 0.35,
+            top: 28, // below status bar
+            right: 0,
+            bottom: 0,
+            child: _MassiveRightStick(mouseMode: _mouseMode),
+          ),
+
+          // 3. Status bar
+          Positioned(
+            top: 0, left: 0, right: 0,
+            child: SafeArea(
+              bottom: false,
+              child: _StatusBar(
                 state: _conn,
                 ip: WebSocketService.instance.currentIp ?? '',
                 onTap: () => _showDialog(context),
                 onSettings: () => setState(() => _showSettings = !_showSettings),
               ),
-
-              // ── Triggers ─────────────────────────────────────────────
-              SizedBox(
-                height: h * 0.13,
-                child: Row(children: [
-                  TriggerBar(side: 'left',  label: 'LT', width: w * 0.28, height: double.infinity),
-                  const Spacer(),
-                  TriggerBar(side: 'right', label: 'RT', width: w * 0.28, height: double.infinity),
-                ]),
-              ),
-
-              // ── Bumpers ───────────────────────────────────────────────
-              SizedBox(
-                height: h * 0.09,
-                child: Padding(
-                  padding: EdgeInsets.symmetric(horizontal: w * 0.03, vertical: 6),
-                  child: Row(children: [
-                    BumperButton(button: 'LB', label: 'LB', width: w * 0.22),
-                    const Spacer(),
-                    BumperButton(button: 'RB', label: 'RB', width: w * 0.22),
-                  ]),
-                ),
-              ),
-
-              // ── Main body ─────────────────────────────────────────────
-              Expanded(
-                child: Padding(
-                  padding: EdgeInsets.symmetric(horizontal: w * 0.01),
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.center,
-                    children: [
-                      _LeftSide(h: h),
-                      const Spacer(),
-                      _CenterCluster(
-                        mouseMode: _mouseMode,
-                        onMouseToggle: () => setState(() => _mouseMode = !_mouseMode),
-                      ),
-                      const Spacer(),
-                      _RightSide(mouseMode: _mouseMode, h: h),
-                    ],
-                  ),
-                ),
-              ),
-              SizedBox(height: h * 0.015),
-            ],
+            ),
           ),
 
-          // ── Settings overlay ──────────────────────────────────────────
+          // 4. The Top / Center Navigation Buttons
+          Positioned(
+            top: h * 0.15,
+            left: 0, right: 0,
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const CenterButton(button: 'BACK', icon: Icons.arrow_back_ios_new, size: 24),
+                SizedBox(width: w * 0.04),
+                const GuideButton(size: 44),
+                SizedBox(width: w * 0.04),
+                const CenterButton(button: 'START', icon: Icons.play_arrow, size: 24),
+              ],
+            ),
+          ),
+
+          // 5. Mouse Toggle Button in bottom center
+          Positioned(
+            bottom: h * 0.05,
+            left: 0, right: 0,
+            child: Align(
+              alignment: Alignment.center,
+              child: _MouseToggleButton(
+                mouseMode: _mouseMode,
+                onToggle: () => setState(() => _mouseMode = !_mouseMode),
+              ),
+            ),
+          ),
+
+          // 6. Left Side Buttons (Triggers, Bumpers, DPad, Analog)
+          Positioned(
+            top: 28, left: w * 0.02, bottom: h * 0.05,
+            child: SizedBox(
+              width: w * 0.35,
+              child: Stack(
+                children: [
+                  Positioned(top: h * 0.05, left: w * 0.05, child: const TriggerBar(side: 'left', label: 'LT', width: 56, height: 56)),
+                  Positioned(top: h * 0.05, right: w * 0.05, child: const BumperButton(button: 'LB', label: 'LB', width: 56)),
+                  Positioned(bottom: h * 0.05, left: 0, child: const ActionButton(button: 'LS', label: 'L3', size: 56)),
+                  
+                  // Left Stick
+                  Positioned(
+                    bottom: h * 0.05,
+                    right: w * 0.02,
+                    child: AnalogStick(side: 'left', button: 'LS', size: h * 0.35,
+                      sensitivity: WebSocketService.instance.sensitivity.stickSensitivity,
+                      deadZone:    WebSocketService.instance.sensitivity.deadZone),
+                  ),
+
+                  // D-Pad
+                  Positioned(
+                    top: h * 0.3,
+                    left: w * 0.02,
+                    child: const DPad(size: 140),
+                  ),
+                ],
+              ),
+            ),
+          ),
+
+          // 7. Right Side Buttons (over top of the massive gesture area)
+          Positioned(
+            top: 28, right: w * 0.02, bottom: h * 0.05,
+            child: IgnorePointer(
+              // The main container ignores pointers so the background stick can catch misses,
+              // but we wrap the actual buttons in an overlay so they catch hits.
+              // Actually, Flutter Stack automatically routes hits to children. 
+              // We just don't want a solid container blocking the background.
+              ignoring: false, 
+              child: SizedBox(
+                width: w * 0.35,
+                child: Stack(
+                  children: [
+                    Positioned(top: h * 0.05, left: w * 0.05, child: const BumperButton(button: 'RB', label: 'RB', width: 56)),
+                    Positioned(top: h * 0.05, right: w * 0.05, child: const TriggerBar(side: 'right', label: 'RT', width: 56, height: 56)),
+                    Positioned(bottom: h * 0.05, right: 0, child: const ActionButton(button: 'RS', label: 'R3', size: 56)),
+                    
+                    // Face Buttons (A, B, X, Y)
+                    Positioned(
+                      bottom: h * 0.25,
+                      right: w * 0.05,
+                      child: _FaceButtons(),
+                    ),
+
+                    if (_mouseMode)
+                      Positioned(
+                        bottom: h * 0.1, left: w * 0.05,
+                        child: Row(mainAxisSize: MainAxisSize.min, children: [
+                          _MouseBtn(button: 'left',  label: 'L-Click'),
+                          const SizedBox(width: 8),
+                          _MouseBtn(button: 'right', label: 'R-Click'),
+                        ]),
+                      ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+
+          // 8. Settings overlay
           if (_showSettings)
             _SettingsPanel(onClose: () => setState(() => _showSettings = false)),
         ],
@@ -110,97 +180,107 @@ class _ControllerScreenState extends State<ControllerScreen> {
       showDialog(context: ctx, builder: (_) => const _IpDialog());
 }
 
-// ── Left side ────────────────────────────────────────────────────────────────
+/// A massive gesture detector that sends Right Stick (or Mouse) data
+class _MassiveRightStick extends StatefulWidget {
+  const _MassiveRightStick({required this.mouseMode});
+  final bool mouseMode;
 
-class _LeftSide extends StatelessWidget {
-  const _LeftSide({required this.h});
-  final double h;
   @override
-  Widget build(BuildContext context) => Column(
-    mainAxisAlignment: MainAxisAlignment.center,
-    children: [
-      AnalogStick(side: 'left', button: 'LS', size: h * 0.25,
-          sensitivity: WebSocketService.instance.sensitivity.stickSensitivity,
-          deadZone:    WebSocketService.instance.sensitivity.deadZone),
-      SizedBox(height: h * 0.03),
-      const DPad(size: 108),
-    ],
-  );
+  State<_MassiveRightStick> createState() => _MassiveRightStickState();
 }
 
-// ── Right side ────────────────────────────────────────────────────────────────
+class _MassiveRightStickState extends State<_MassiveRightStick> {
+  Offset? _startPos;
 
-class _RightSide extends StatelessWidget {
-  const _RightSide({required this.mouseMode, required this.h});
-  final bool mouseMode;
-  final double h;
+  void _update(DragUpdateDetails d) {
+    if (widget.mouseMode) {
+      // Trackpad behavior: use exact finger movement delta
+      final sens = WebSocketService.instance.sensitivity.mouseSensitivity;
+      final speed = sens / 10.0;
+      WebSocketService.instance.send({
+        'type': 'mouse_move',
+        'dx': (d.delta.dx * speed).round(),
+        'dy': (d.delta.dy * speed).round(),
+      });
+      return;
+    }
+
+    // Joystick behavior
+    if (_startPos == null) return;
+    
+    // We treat the start position as the center of an imaginary joystick
+    // The "radius" of this joystick will be around 100 pixels
+    final double maxDist = 120.0;
+    
+    var delta = d.localPosition - _startPos!;
+    if (delta.distance > maxDist) delta = delta / delta.distance * maxDist;
+
+    final nx = delta.dx / maxDist;
+    final ny = -delta.dy / maxDist;
+    
+    final sens = WebSocketService.instance.sensitivity.stickSensitivity;
+    final dead = WebSocketService.instance.sensitivity.deadZone;
+        
+    final mag = sqrt(nx * nx + ny * ny);
+    final x = mag < dead ? 0.0 : (nx * sens).clamp(-1.0, 1.0);
+    final y = mag < dead ? 0.0 : (ny * sens).clamp(-1.0, 1.0);
+
+    WebSocketService.instance.send({
+      'type': 'right_stick',
+      'x': double.parse(x.toStringAsFixed(3)),
+      'y': double.parse(y.toStringAsFixed(3)),
+    });
+  }
+
+  void _reset() {
+    _startPos = null;
+    if (!widget.mouseMode) {
+      WebSocketService.instance.send({'type': 'right_stick', 'x': 0.0, 'y': 0.0});
+    }
+  }
+
   @override
-  Widget build(BuildContext context) => Column(
-    mainAxisAlignment: MainAxisAlignment.center,
-    children: [
-      _FaceButtons(),
-      SizedBox(height: h * 0.03),
-      AnalogStick(
-        side: 'right', button: 'RS', size: h * 0.22,
-        mouseMode: mouseMode,
-        mouseSensitivity: WebSocketService.instance.sensitivity.mouseSensitivity,
-        sensitivity:      WebSocketService.instance.sensitivity.stickSensitivity,
-        deadZone:         WebSocketService.instance.sensitivity.deadZone,
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      behavior: HitTestBehavior.translucent, // Allow hits to pass through empty space but still catch them
+      onPanDown: (d) => _startPos = d.localPosition,
+      onPanUpdate: (d) => _update(d),
+      onPanEnd: (_) => _reset(),
+      onPanCancel: _reset,
+      child: Container(
+        color: Colors.transparent, 
       ),
-      if (mouseMode) ...[
-        const SizedBox(height: 6),
-        Row(mainAxisSize: MainAxisSize.min, children: [
-          _MouseBtn(button: 'left',  label: 'L-Click'),
-          const SizedBox(width: 8),
-          _MouseBtn(button: 'right', label: 'R-Click'),
-        ]),
-      ],
-    ],
-  );
+    );
+  }
 }
 
-// ── Center cluster ────────────────────────────────────────────────────────────
-
-class _CenterCluster extends StatelessWidget {
-  const _CenterCluster({required this.mouseMode, required this.onMouseToggle});
+class _MouseToggleButton extends StatelessWidget {
+  const _MouseToggleButton({required this.mouseMode, required this.onToggle});
   final bool mouseMode;
-  final VoidCallback onMouseToggle;
+  final VoidCallback onToggle;
   @override
-  Widget build(BuildContext context) => Column(
-    mainAxisAlignment: MainAxisAlignment.center,
-    children: [
-      Row(mainAxisSize: MainAxisSize.min, children: [
-        CenterButton(button: 'BACK',  icon: Icons.menu,  size: 32),
-        const SizedBox(width: 10),
-        const GuideButton(size: 46),
-        const SizedBox(width: 10),
-        CenterButton(button: 'START', icon: Icons.pause, size: 32),
-      ]),
-      const SizedBox(height: 14),
-      GestureDetector(
-        onTap: onMouseToggle,
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 200),
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(20),
-            color: mouseMode ? const Color(0xFFFF6B35).withOpacity(0.2) : const Color(0xFF1A1A2E),
-            border: Border.all(
-              color: mouseMode ? const Color(0xFFFF6B35) : const Color(0xFF3A3A55),
-              width: 1.5,
-            ),
-          ),
-          child: Row(mainAxisSize: MainAxisSize.min, children: [
-            Icon(Icons.mouse, size: 13, color: mouseMode ? const Color(0xFFFF6B35) : Colors.white38),
-            const SizedBox(width: 4),
-            Text('MOUSE', style: TextStyle(
-              color: mouseMode ? const Color(0xFFFF6B35) : Colors.white30,
-              fontSize: 9, fontWeight: FontWeight.bold, letterSpacing: 1.2,
-            )),
-          ]),
+  Widget build(BuildContext context) => GestureDetector(
+    onTap: onToggle,
+    child: AnimatedContainer(
+      duration: const Duration(milliseconds: 200),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(20),
+        color: mouseMode ? Colors.white24 : Colors.transparent,
+        border: Border.all(
+          color: mouseMode ? Colors.white : const Color(0x66FFFFFF),
+          width: 1.5,
         ),
       ),
-    ],
+      child: Row(mainAxisSize: MainAxisSize.min, children: [
+        Icon(Icons.mouse, size: 13, color: mouseMode ? Colors.white : Colors.white60),
+        const SizedBox(width: 6),
+        Text('MOUSE', style: TextStyle(
+          color: mouseMode ? Colors.white : Colors.white60,
+          fontSize: 9, fontWeight: FontWeight.bold, letterSpacing: 1.2,
+        )),
+      ]),
+    ),
   );
 }
 
@@ -209,12 +289,12 @@ class _CenterCluster extends StatelessWidget {
 class _FaceButtons extends StatelessWidget {
   @override
   Widget build(BuildContext context) => const SizedBox(
-    width: 140, height: 140,
+    width: 150, height: 150,
     child: Stack(alignment: Alignment.center, children: [
-      Positioned(top: 0,    left: 46, child: ActionButton(button: 'Y', size: 48)),
-      Positioned(left: 0,   top: 46,  child: ActionButton(button: 'X', size: 48)),
-      Positioned(right: 0,  top: 46,  child: ActionButton(button: 'B', size: 48)),
-      Positioned(bottom: 0, left: 46, child: ActionButton(button: 'A', size: 48)),
+      Positioned(top: 0,    child: ActionButton(button: 'Y', size: 52)),
+      Positioned(left: 0,   child: ActionButton(button: 'X', size: 52)),
+      Positioned(right: 0,  child: ActionButton(button: 'B', size: 52)),
+      Positioned(bottom: 0, child: ActionButton(button: 'A', size: 52)),
     ]),
   );
 }
@@ -243,8 +323,8 @@ class _MouseBtnState extends State<_MouseBtn> {
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(6),
-        color: _p ? const Color(0xFFFF6B35) : const Color(0xFF1E1E30),
-        border: Border.all(color: const Color(0xFFFF6B35)),
+        color: _p ? Colors.white24 : Colors.transparent,
+        border: Border.all(color: _p ? Colors.white : const Color(0x66FFFFFF)),
       ),
       child: Text(widget.label, style: const TextStyle(color: Colors.white, fontSize: 10)),
     ),
@@ -327,12 +407,12 @@ class _SettingsPanelState extends State<_SettingsPanel> {
       Row(children: [
         Text(label, style: const TextStyle(color: Colors.white70, fontSize: 13)),
         const Spacer(),
-        Text(val.toStringAsFixed(2), style: const TextStyle(color: Color(0xFF00D4FF), fontSize: 13)),
+        Text(val.toStringAsFixed(2), style: const TextStyle(color: Colors.white, fontSize: 13)),
       ]),
       Slider(
         value: val, min: min, max: max,
-        activeColor: const Color(0xFF00D4FF),
-        inactiveColor: const Color(0xFF2A2A40),
+        activeColor: Colors.white,
+        inactiveColor: Colors.white24,
         onChanged: onChanged,
       ),
       const SizedBox(height: 4),
@@ -344,17 +424,33 @@ class _SettingsPanelState extends State<_SettingsPanel> {
 
 class _BgGlow extends StatelessWidget {
   @override
-  Widget build(BuildContext context) => CustomPaint(painter: _GlowPainter());
+  Widget build(BuildContext context) => CustomPaint(painter: _GlowPainter(), size: Size.infinite);
 }
 
 class _GlowPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size s) {
+    // Cross-hatch subtle background pattern matching the reference image
+    final paint = Paint()
+      ..color = Colors.white.withOpacity(0.02)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.0;
+      
+    final int spacing = 40;
+    
+    // Draw diagonal lines
+    for (double i = -s.height; i < s.width; i += spacing) {
+      canvas.drawLine(Offset(i, 0), Offset(i + s.height, s.height), paint);
+    }
+    for (double i = s.width + s.height; i > 0; i -= spacing) {
+      canvas.drawLine(Offset(i, 0), Offset(i - s.height, s.height), paint);
+    }
+
+    // Retain subtle glow
     final p = Paint()..maskFilter = const MaskFilter.blur(BlurStyle.normal, 80);
-    p.color = const Color(0xFF00D4FF).withOpacity(0.04);
-    canvas.drawCircle(Offset(s.width * 0.15, s.height * 0.5), s.width * 0.25, p);
-    p.color = const Color(0xFF7B2FFF).withOpacity(0.04);
-    canvas.drawCircle(Offset(s.width * 0.85, s.height * 0.5), s.width * 0.25, p);
+    p.color = Colors.white.withOpacity(0.03);
+    canvas.drawCircle(Offset(s.width * 0.2, s.height * 0.5), s.width * 0.3, p);
+    canvas.drawCircle(Offset(s.width * 0.8, s.height * 0.5), s.width * 0.3, p);
   }
   @override bool shouldRepaint(_) => false;
 }
@@ -393,7 +489,7 @@ class _StatusBarState extends State<_StatusBar> with SingleTickerProviderStateMi
     return GestureDetector(
       onTap: widget.onTap,
       child: Container(
-        height: 28, color: const Color(0xFF0D0D18),
+        height: 28, color: Colors.black38,
         padding: const EdgeInsets.symmetric(horizontal: 12),
         child: Row(children: [
           widget.state == ws.ConnectionState.connecting
@@ -410,7 +506,10 @@ class _StatusBarState extends State<_StatusBar> with SingleTickerProviderStateMi
           const Spacer(),
           GestureDetector(
             onTap: widget.onSettings,
-            child: const Icon(Icons.tune, color: Colors.white38, size: 16),
+            child: const Padding(
+              padding: EdgeInsets.all(8.0),
+              child: Icon(Icons.settings, color: Colors.white, size: 22),
+            ),
           ),
         ]),
       ),
@@ -495,7 +594,6 @@ class _IpDialogState extends State<_IpDialog> {
               const Text('Connect to PC',
                   style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
               const Spacer(),
-              // Live connection dot
               AnimatedContainer(
                 duration: const Duration(milliseconds: 300),
                 width: 10, height: 10,
@@ -508,55 +606,23 @@ class _IpDialogState extends State<_IpDialog> {
                           : const Color(0xFFE53935),
                 ),
               ),
-              const SizedBox(width: 6),
-              Text(
-                _conn == ws.ConnectionState.connected ? 'Connected!' :
-                _conn == ws.ConnectionState.connecting ? 'Trying…' : 'Not connected',
-                style: TextStyle(
-                  color: _conn == ws.ConnectionState.connected
-                      ? const Color(0xFF1DB954) : Colors.white38,
-                  fontSize: 12,
-                ),
-              ),
             ]),
             const SizedBox(height: 16),
-
-            // IP input — clearly visible above keyboard
             TextField(
               controller: _ctrl,
               focusNode: _focusNode,
-              style: const TextStyle(color: Colors.white, fontSize: 18, letterSpacing: 1),
+              style: const TextStyle(color: Colors.white, fontSize: 18),
               keyboardType: const TextInputType.numberWithOptions(decimal: true),
-              textInputAction: TextInputAction.done,
               onSubmitted: (_) => _connect(),
               decoration: InputDecoration(
                 labelText: 'PC IP Address',
                 labelStyle: const TextStyle(color: Colors.white54),
-                hintText: 'e.g. 192.168.1.5',
-                hintStyle: const TextStyle(color: Colors.white24),
                 filled: true,
                 fillColor: const Color(0xFF1A1A2E),
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12),
-                    borderSide: const BorderSide(color: Color(0xFF3A3A55))),
-                enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12),
-                    borderSide: const BorderSide(color: Color(0xFF3A3A55))),
-                focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12),
-                    borderSide: const BorderSide(color: Color(0xFF00D4FF), width: 2)),
-                suffixIcon: IconButton(
-                  icon: const Icon(Icons.clear, color: Colors.white38),
-                  onPressed: () => _ctrl.clear(),
-                ),
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
               ),
             ),
-            const SizedBox(height: 8),
-            const Text(
-              'Your PC IP is shown in the server terminal window',
-              style: TextStyle(color: Colors.white38, fontSize: 11),
-              textAlign: TextAlign.center,
-            ),
             const SizedBox(height: 16),
-
-            // QR scanner
             if (_scanning)
               ClipRRect(
                 borderRadius: BorderRadius.circular(12),
@@ -565,38 +631,39 @@ class _IpDialogState extends State<_IpDialog> {
                   child: MobileScanner(
                     controller: _qrCtrl ??= MobileScannerController(),
                     onDetect: _onDetect,
+                    errorBuilder: (context, error, child) {
+                      return const Center(child: Text('Camera error. Check permissions.', style: TextStyle(color: Colors.redAccent)));
+                    },
                   ),
                 ),
               ),
-            if (_scanning) const SizedBox(height: 12),
-
-            // Buttons
             Row(children: [
               TextButton.icon(
-                onPressed: () => setState(() {
-                  _scanning = !_scanning;
-                  if (!_scanning) _qrCtrl?.stop();
-                }),
-                icon: Icon(_scanning ? Icons.camera_alt_outlined : Icons.qr_code_scanner,
-                    size: 16, color: Colors.white54),
-                label: Text(_scanning ? 'Hide QR' : 'Scan QR',
-                    style: const TextStyle(color: Colors.white54)),
+                onPressed: () async {
+                  if (!_scanning) {
+                    final status = await Permission.camera.request();
+                    if (status.isGranted) {
+                      setState(() => _scanning = true);
+                    } else {
+                      if (context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('Camera permission required to scan QR')),
+                        );
+                      }
+                    }
+                  } else {
+                    setState(() => _scanning = false);
+                    _qrCtrl?.stop();
+                  }
+                },
+                icon: Icon(_scanning ? Icons.camera_alt_outlined : Icons.qr_code_scanner, color: Colors.white54),
+                label: Text(_scanning ? 'Hide' : 'Scan QR', style: const TextStyle(color: Colors.white54)),
               ),
               const Spacer(),
-              TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: const Text('Cancel', style: TextStyle(color: Colors.white38)),
-              ),
-              const SizedBox(width: 8),
               ElevatedButton(
                 onPressed: _connect,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF00D4FF),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-                ),
-                child: const Text('Connect',
-                    style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
+                style: ElevatedButton.styleFrom(backgroundColor: Colors.white),
+                child: const Text('Connect', style: TextStyle(color: Colors.black)),
               ),
             ]),
           ]),

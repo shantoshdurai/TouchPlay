@@ -1,21 +1,13 @@
 import asyncio
 import json
-import logging
 import socket
 import websockets
 from gamepad import GamepadController, mouse_move, mouse_click
-from qr_gen import generate_qr, get_best_ip
+from qr_gen import generate_qr
 
 PORT      = 8765
 UDP_PORT  = 8766          # discovery broadcast port
 BATCH_MS  = 0.008         # 8 ms gamepad flush
-
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(message)s",
-    datefmt="%H:%M:%S",
-)
-log = logging.getLogger(__name__)
 
 gamepad = GamepadController()
 _dirty  = False
@@ -79,7 +71,7 @@ def handle_message(data: dict) -> str | None:
 
 async def handler(websocket):
     client_ip = websocket.remote_address[0]
-    log.info(f"Phone connected: {client_ip}")
+    print(f"\n[+] Phone connected! ({client_ip})")
     try:
         async for raw in websocket:
             try:
@@ -87,23 +79,22 @@ async def handler(websocket):
                 response = handle_message(data)
                 if response:
                     await websocket.send(response)
-            except (json.JSONDecodeError, KeyError) as e:
-                log.warning(f"Bad message: {e}")
+            except (json.JSONDecodeError, KeyError):
+                pass
     except (websockets.exceptions.ConnectionClosedError, asyncio.CancelledError):
         pass
-    except Exception as e:
-        log.error(f"Error: {e}")
+    except Exception:
+        pass
     finally:
-        log.info(f"Phone disconnected: {client_ip}")
+        print(f"[-] Phone disconnected. ({client_ip})")
 
 
 # ── Entry point ───────────────────────────────────────────────────────────────
 
 async def main():
     ip = generate_qr(PORT)
-    log.info(f"Server listening on {ip}:{PORT}")
-    log.info("Broadcasting presence via UDP — phone will auto-connect!")
-
+    # Most startup logs are handled by run_server.bat and generate_qr
+    
     async with websockets.serve(handler, "0.0.0.0", PORT):
         await asyncio.gather(
             asyncio.Future(),

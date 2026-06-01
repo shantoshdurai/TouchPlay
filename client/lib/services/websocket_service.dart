@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'package:flutter/widgets.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
@@ -26,7 +27,7 @@ class SensitivitySettings {
   });
 }
 
-class WebSocketService {
+class WebSocketService with WidgetsBindingObserver {
   WebSocketService._();
   static final WebSocketService instance = WebSocketService._();
 
@@ -60,11 +61,27 @@ class WebSocketService {
   }
 
   Future<void> init() async {
+    WidgetsBinding.instance.addObserver(this);
     final prefs = await SharedPreferences.getInstance();
     _manualIp = prefs.getString('manual_ip');
     _running  = true;
     _startUdpDiscovery();
     _scheduleConnect();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      if (_state != ConnectionState.connected) {
+        _disconnect();
+        _tryConnect(silent: false);
+      } else {
+        // Send a ping immediately to verify connection is still alive
+        send({'type': 'ping'});
+        _pongTimer?.cancel();
+        _pongTimer = Timer(_pongTimeout, _onDisconnected);
+      }
+    }
   }
 
   // ── UDP auto-discovery ──────────────────────────────────────────────────────
@@ -104,7 +121,7 @@ class WebSocketService {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('manual_ip', _manualIp!);
     _disconnect();
-    _scheduleConnect(immediately: true);
+    _tryConnect(silent: false);
   }
 
   List<String> _candidates() {
@@ -118,28 +135,51 @@ class WebSocketService {
 
   // ── Connection logic ────────────────────────────────────────────────────────
 
+  bool _isConnecting = false;
+  int _connectionGen = 0;
+
   void _scheduleConnect({bool immediately = false}) {
     _reconnectTimer?.cancel();
     _reconnectTimer = Timer(
       immediately ? Duration.zero : _reconnectDelay,
-      _tryConnect,
+      () => _tryConnect(silent: true),
     );
   }
 
-  Future<void> _tryConnect() async {
-    if (!_running) return;
-    for (final ip in _candidates()) {
-      if (await _connect(ip)) return;
+  Future<void> _tryConnect({bool silent = false}) async {
+    if (!_running || _isConnecting) return;
+    _isConnecting = true;
+    final gen = _connectionGen;
+    
+    if (!silent) {
+      _setState(ConnectionState.connecting);
     }
+
+    for (final ip in _candidates()) {
+      if (gen != _connectionGen) return; // Aborted by newer connection attempt
+      if (await _connect(ip, gen)) {
+        if (gen != _connectionGen) return; // Aborted during await
+        _isConnecting = false;
+        return;
+      }
+    }
+    
+    if (gen != _connectionGen) return; // Aborted
+    _setState(ConnectionState.disconnected);
+    _isConnecting = false;
     _scheduleConnect();
   }
 
-  Future<bool> _connect(String ip) async {
-    _setState(ConnectionState.connecting);
+  Future<bool> _connect(String ip, int gen) async {
     try {
       final uri     = Uri.parse('ws://$ip:$_port');
       final channel = WebSocketChannel.connect(uri);
       await channel.ready.timeout(const Duration(seconds: 3));
+      
+      if (gen != _connectionGen) {
+        channel.sink.close();
+        return false;
+      }
 
       _channel = channel;
       _sub = channel.stream.listen(
@@ -175,6 +215,7 @@ class WebSocketService {
   }
 
   void _disconnect() {
+    _connectionGen++;
     _reconnectTimer?.cancel();
     _pingTimer?.cancel();
     _pongTimer?.cancel();
@@ -182,6 +223,7 @@ class WebSocketService {
     _channel?.sink.close();
     _channel = null;
     _setState(ConnectionState.disconnected);
+    _isConnecting = false;
   }
 
   void _startPing() {
@@ -212,6 +254,7 @@ class WebSocketService {
   }
 
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _running = false;
     _udpSocket?.close();
     _disconnect();

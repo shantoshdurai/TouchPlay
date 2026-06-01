@@ -2,6 +2,8 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 import '../services/websocket_service.dart';
 
+const _neutralColor = Color(0x66FFFFFF);
+
 class AnalogStick extends StatefulWidget {
   const AnalogStick({
     super.key,
@@ -31,10 +33,10 @@ class _AnalogStickState extends State<AnalogStick> {
 
   String get _stickMsg => widget.side == 'left' ? 'left_stick' : 'right_stick';
 
-  void _update(Offset localPos) {
+  void _update(DragUpdateDetails d) {
     final r = widget.size / 2;
     final center = Offset(r, r);
-    var delta = localPos - center;
+    var delta = d.localPosition - center;
     if (delta.distance > r) delta = delta / delta.distance * r;
 
     final nx = delta.dx / r;
@@ -46,11 +48,11 @@ class _AnalogStickState extends State<AnalogStick> {
     setState(() => _norm = Offset(delta.dx / r, delta.dy / r));
 
     if (widget.mouseMode) {
-      final speed = widget.mouseSensitivity;
+      final speed = widget.mouseSensitivity / 10.0;
       WebSocketService.instance.send({
         'type': 'mouse_move',
-        'dx': (x * speed).round(),
-        'dy': (-y * speed).round(),
+        'dx': (d.delta.dx * speed).round(),
+        'dy': (d.delta.dy * speed).round(),
       });
     } else {
       WebSocketService.instance.send({
@@ -81,7 +83,7 @@ class _AnalogStickState extends State<AnalogStick> {
     final r = size / 2;
     return GestureDetector(
       onTap: _onTap,
-      onPanUpdate: (d) => _update(d.localPosition),
+      onPanUpdate: (d) => _update(d),
       onPanEnd: (_) => _reset(),
       onPanCancel: _reset,
       child: SizedBox(
@@ -90,7 +92,7 @@ class _AnalogStickState extends State<AnalogStick> {
         child: CustomPaint(
           painter: _StickPainter(
             norm: _norm,
-            thumbR: size * 0.22,
+            thumbR: size * 0.28,
             outerR: r,
             mouseMode: widget.mouseMode,
           ),
@@ -116,36 +118,46 @@ class _StickPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final center = Offset(size.width / 2, size.height / 2);
-    final accentColor = mouseMode ? const Color(0xFFFF6B35) : const Color(0xFF00D4FF);
 
-    // Outer base
-    canvas.drawCircle(center, outerR, Paint()..color = const Color(0xFF252535));
-    canvas.drawCircle(center, outerR,
-        Paint()
-          ..color = accentColor.withOpacity(0.25)
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = 2);
+    // Outer base rings
+    final outerRingPaint = Paint()
+      ..color = _neutralColor
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.0;
 
-    // Glow on displacement
-    final mag = norm.distance;
-    if (mag > 0.05) {
-      canvas.drawCircle(center, outerR - 1,
-          Paint()..color = accentColor.withOpacity(mag * 0.12));
-    }
+    canvas.drawCircle(center, outerR, outerRingPaint);
+    canvas.drawCircle(center, outerR * 0.7, outerRingPaint);
 
-    // Thumb
+    // Thumb position
     final pos = center + Offset(norm.dx * outerR, norm.dy * outerR);
+    
+    // Draw solid light gray thumb circle
     canvas.drawCircle(pos, thumbR,
         Paint()
-          ..shader = RadialGradient(colors: [
-            const Color(0xFF5A5A7A),
-            const Color(0xFF2E2E45),
-          ]).createShader(Rect.fromCircle(center: pos, radius: thumbR)));
-    canvas.drawCircle(pos, thumbR,
-        Paint()
-          ..color = mag > 0.05 ? accentColor.withOpacity(0.8) : const Color(0xFF4A4A6A)
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = 2);
+          ..color = const Color(0xFFC0C0C0)
+          ..style = PaintingStyle.fill);
+
+    // Draw grid of dots on the thumb
+    final dotPaint = Paint()
+      ..color = const Color(0xFF888888)
+      ..style = PaintingStyle.fill;
+    
+    final int rows = 5;
+    final int cols = 5;
+    final double spacing = thumbR * 0.25;
+    final double startX = pos.dx - ((cols - 1) * spacing / 2);
+    final double startY = pos.dy - ((rows - 1) * spacing / 2);
+
+    for (int i = 0; i < rows; i++) {
+      for (int j = 0; j < cols; j++) {
+        // Only draw dots that fit inside a smaller inner radius
+        double dx = startX + j * spacing - pos.dx;
+        double dy = startY + i * spacing - pos.dy;
+        if (dx * dx + dy * dy < (thumbR * 0.6) * (thumbR * 0.6)) {
+           canvas.drawCircle(Offset(startX + j * spacing, startY + i * spacing), 1.5, dotPaint);
+        }
+      }
+    }
 
     // Mouse mode icon
     if (mouseMode) {
@@ -153,7 +165,7 @@ class _StickPainter extends CustomPainter {
         text: const TextSpan(text: '🖱', style: TextStyle(fontSize: 10)),
         textDirection: TextDirection.ltr,
       )..layout();
-      tp.paint(canvas, center - Offset(tp.width / 2, tp.height / 2));
+      tp.paint(canvas, pos - Offset(tp.width / 2, tp.height / 2));
     }
   }
 
