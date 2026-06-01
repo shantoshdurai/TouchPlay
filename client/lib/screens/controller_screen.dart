@@ -6,7 +6,6 @@ import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../services/websocket_service.dart';
 import '../services/websocket_service.dart' as ws;
-import '../widgets/analog_stick.dart';
 import '../widgets/trigger_button.dart';
 import '../widgets/action_button.dart';
 
@@ -34,8 +33,8 @@ class _ControllerScreenState extends State<ControllerScreen> {
 
   Future<void> _initTutorial() async {
     final prefs = await SharedPreferences.getInstance();
-    if (!(prefs.getBool('tutorial_seen') ?? false)) {
-      await prefs.setBool('tutorial_seen', true);
+    if (!(prefs.getBool('tutorial_seen_v2') ?? false)) {
+      await prefs.setBool('tutorial_seen_v2', true);
       if (mounted) setState(() => _showTutorial = true);
     }
   }
@@ -63,13 +62,15 @@ class _ControllerScreenState extends State<ControllerScreen> {
             child: Container(width: 1, color: Colors.white.withOpacity(0.07)),
           ),
 
-          // 2. The massive right/middle touch zone for the Right Stick
+          // 2a. LEFT floating stick zone (left half) — movement
           Positioned(
-            left: w * 0.35,
-            top: 28, // below status bar
-            right: 0,
-            bottom: 0,
-            child: _MassiveRightStick(mouseMode: _mouseMode, screenH: h),
+            left: 0, top: 28, bottom: 0, width: w * 0.5,
+            child: _FloatingStick(side: 'left', screenH: h),
+          ),
+          // 2b. RIGHT floating stick zone (right half) — camera / mouse
+          Positioned(
+            right: 0, top: 28, bottom: 0, width: w * 0.5,
+            child: _FloatingStick(side: 'right', screenH: h, mouseMode: _mouseMode),
           ),
 
           // 3. Connection chip (top-left, compact)
@@ -146,15 +147,6 @@ class _ControllerScreenState extends State<ControllerScreen> {
                   Positioned(top: h * 0.05, left: w * 0.05, child: const TriggerBar(side: 'left', label: 'LT', width: 56, height: 56)),
                   Positioned(top: h * 0.05, right: w * 0.05, child: const BumperButton(button: 'LB', label: 'LB', width: 56)),
                   Positioned(bottom: h * 0.05, left: 0, child: const ActionButton(button: 'LS', label: 'L3', size: 56)),
-                  
-                  // Left Stick
-                  Positioned(
-                    bottom: h * 0.05,
-                    right: w * 0.02,
-                    child: AnalogStick(side: 'left', button: 'LS', size: h * 0.35,
-                      sensitivity: WebSocketService.instance.sensitivity.stickSensitivity,
-                      deadZone:    WebSocketService.instance.sensitivity.deadZone),
-                  ),
 
                   // D-Pad
                   Positioned(
@@ -214,49 +206,70 @@ class _ControllerScreenState extends State<ControllerScreen> {
       showDialog(context: ctx, builder: (_) => const _IpDialog());
 }
 
-/// A massive gesture detector that sends Right Stick (or Mouse) data
-class _MassiveRightStick extends StatefulWidget {
-  const _MassiveRightStick({required this.mouseMode, required this.screenH});
+/// Unified floating joystick — used IDENTICALLY for both left and right halves.
+/// Hidden until touched; spawns at the touch point; same size/style on both sides.
+class _FloatingStick extends StatefulWidget {
+  const _FloatingStick({
+    required this.side,        // 'left' = movement, 'right' = camera
+    required this.screenH,
+    this.mouseMode = false,    // right side only
+  });
+  final String side;
+  final double screenH;
   final bool   mouseMode;
-  final double screenH;   // landscape screen height, used to match left-stick radius
 
   @override
-  State<_MassiveRightStick> createState() => _MassiveRightStickState();
+  State<_FloatingStick> createState() => _FloatingStickState();
 }
 
-class _MassiveRightStickState extends State<_MassiveRightStick> {
+class _FloatingStickState extends State<_FloatingStick> {
   int?      _trackId;
   Offset?   _center;
   Offset    _thumb = Offset.zero;
   Offset?   _downPos;
   DateTime? _lastTapTime;
 
-  // Radius matches left AnalogStick (size: h*0.35 → radius h*0.175) scaled by setting
+  bool get _isLeft  => widget.side == 'left';
+  String get _stick => _isLeft ? 'left_stick' : 'right_stick';
+
+  // Same base radius for BOTH sticks → identical size. Scaled by one setting.
   double get _joyR =>
-      widget.screenH * 0.175 * WebSocketService.instance.sensitivity.joyRadius;
+      widget.screenH * 0.16 * WebSocketService.instance.sensitivity.joyRadius;
 
   static const _tapSlop     = 12.0;
   static const _doubleTapMs = 320;
 
+  void _sendZero() =>
+      WebSocketService.instance.send({'type': _stick, 'x': 0.0, 'y': 0.0});
+
+  void _reset() {
+    _trackId = null;
+    _downPos = null;
+    setState(() { _center = null; _thumb = Offset.zero; });
+  }
+
   void _onDown(PointerDownEvent e) {
-    if (_trackId != null) return;
+    if (_trackId != null) return;   // already tracking a finger
     _trackId = e.pointer;
-    _downPos  = e.localPosition;
+    _downPos = e.localPosition;
+
     if (widget.mouseMode) {
+      // double-tap → left click
       final now = DateTime.now();
       if (_lastTapTime != null &&
           now.difference(_lastTapTime!).inMilliseconds < _doubleTapMs) {
         WebSocketService.instance.send({'type': 'mouse_click', 'button': 'left'});
         _lastTapTime = null;
       }
-    } else {
-      setState(() { _center = e.localPosition; _thumb = Offset.zero; });
+      return;
     }
+    setState(() { _center = e.localPosition; _thumb = Offset.zero; });
   }
 
   void _onMove(PointerMoveEvent e) {
     if (e.pointer != _trackId) return;
 
+    // ── Mouse / trackpad mode (right side toggle) ──
     if (widget.mouseMode) {
       if (e.delta.distance < 0.5) return;
       final sens = WebSocketService.instance.sensitivity.mouseSensitivity / 10.0;
@@ -268,30 +281,34 @@ class _MassiveRightStickState extends State<_MassiveRightStick> {
       return;
     }
 
+    // ── Joystick mode ──
     if (_center == null) return;
     final r = _joyR;
-    var offset = e.localPosition - _center!;
+    var offset  = e.localPosition - _center!;
+    var center  = _center!;
 
-    // Re-centering (like Steam Link / Moonlight): ring slides when finger leaves boundary.
-    // This lets you spin continuously without lifting your finger.
+    // Re-centering: if finger passes the ring edge, the ring follows the finger
+    // so you can keep turning/moving continuously (no hard stop at the edge).
     if (offset.distance > r) {
       final unit = offset / offset.distance;
-      _center = e.localPosition - unit * r;   // shift ring so finger sits on edge
-      offset  = unit * r;
+      center = e.localPosition - unit * r;
+      offset = unit * r;
     }
 
-    setState(() => _thumb = offset);
+    setState(() { _center = center; _thumb = offset; });
 
+    final sens = _isLeft
+        ? WebSocketService.instance.sensitivity.stickSensitivity
+        : WebSocketService.instance.sensitivity.rightStickSensitivity;
+    final dead = WebSocketService.instance.sensitivity.deadZone;
     final nx   = offset.dx / r;
     final ny   = -offset.dy / r;
     final mag  = offset.distance / r;
-    final dead = WebSocketService.instance.sensitivity.deadZone;
-    final sens = WebSocketService.instance.sensitivity.rightStickSensitivity;
     final x    = mag < dead ? 0.0 : (nx * sens).clamp(-1.0, 1.0);
     final y    = mag < dead ? 0.0 : (ny * sens).clamp(-1.0, 1.0);
 
     WebSocketService.instance.send({
-      'type': 'right_stick',
+      'type': _stick,
       'x': double.parse(x.toStringAsFixed(3)),
       'y': double.parse(y.toStringAsFixed(3)),
     });
@@ -299,24 +316,21 @@ class _MassiveRightStickState extends State<_MassiveRightStick> {
 
   void _onUp(PointerUpEvent e) {
     if (e.pointer != _trackId) return;
-    _trackId = null;
     if (widget.mouseMode) {
       if (_downPos != null && (e.localPosition - _downPos!).distance < _tapSlop)
         _lastTapTime = DateTime.now();
+      _trackId = null;
       _downPos = null;
-    } else {
-      WebSocketService.instance.send({'type': 'right_stick', 'x': 0.0, 'y': 0.0});
-      setState(() { _center = null; _thumb = Offset.zero; });
+      return;
     }
+    _sendZero();
+    _reset();
   }
 
   void _onCancel(PointerCancelEvent e) {
     if (e.pointer != _trackId) return;
-    _trackId = null; _downPos = null;
-    if (!widget.mouseMode) {
-      WebSocketService.instance.send({'type': 'right_stick', 'x': 0.0, 'y': 0.0});
-      setState(() { _center = null; _thumb = Offset.zero; });
-    }
+    if (!widget.mouseMode) _sendZero();
+    _reset();
   }
 
   @override
@@ -326,49 +340,40 @@ class _MassiveRightStickState extends State<_MassiveRightStick> {
     onPointerMove:   _onMove,
     onPointerUp:     _onUp,
     onPointerCancel: _onCancel,
-    child: LayoutBuilder(builder: (context, constraints) {
-      // Ghost resting position — bottom-left of right panel, mirrors left stick
-      final ghost = Offset(
-        constraints.maxWidth  * 0.28,
-        constraints.maxHeight * 0.65,
-      );
-      return CustomPaint(
-        painter: _JoystickPainter(
-          activeCenter: _center,
-          ghostCenter:  ghost,
-          thumb:        _thumb,
-          radius:       _joyR,
-        ),
-        child: Container(color: Colors.transparent),
-      );
-    }),
+    child: CustomPaint(
+      // null painter when idle → completely hidden, nothing "stuck" on screen
+      painter: _center != null
+          ? _StickPainter(center: _center!, thumb: _thumb, radius: _joyR)
+          : null,
+      child: const SizedBox.expand(),
+    ),
   );
 }
 
-// ── Joystick painter — ghost when idle, full when active ──────────────────────
+// ── Stick painter — identical style for both sides ────────────────────────────
 
-class _JoystickPainter extends CustomPainter {
-  const _JoystickPainter({
-    required this.activeCenter, required this.ghostCenter,
-    required this.thumb,        required this.radius,
-  });
-  final Offset? activeCenter;
-  final Offset  ghostCenter;
-  final Offset  thumb;
-  final double  radius;
+class _StickPainter extends CustomPainter {
+  const _StickPainter({required this.center, required this.thumb, required this.radius});
+  final Offset center;
+  final Offset thumb;
+  final double radius;
 
-  void _drawRings(Canvas canvas, Offset c, bool ghost) {
-    final col  = ghost ? const Color(0x18FFFFFF) : const Color(0x66FFFFFF);
-    final ring = Paint()..color = col..style = PaintingStyle.stroke..strokeWidth = 1.0;
-    canvas.drawCircle(c, radius,       ring);
-    canvas.drawCircle(c, radius * 0.7, ring);
-  }
+  @override
+  void paint(Canvas canvas, Size size) {
+    // Outer + inner rings — same color/thickness/opacity on both sticks
+    final ring = Paint()
+      ..color = const Color(0x66FFFFFF)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.5;
+    canvas.drawCircle(center, radius,       ring);
+    canvas.drawCircle(center, radius * 0.7, ring);
 
-  void _drawThumb(Canvas canvas, Offset c, Offset t) {
-    final tp     = c + t;
+    // Gray dotted thumb — identical to the original left stick
+    final tp     = center + thumb;
     final thumbR = radius * 0.38;
     canvas.drawCircle(tp, thumbR,
         Paint()..color = const Color(0xFFC0C0C0)..style = PaintingStyle.fill);
+
     final dot     = Paint()..color = const Color(0xFF888888)..style = PaintingStyle.fill;
     final spacing = thumbR * 0.25;
     final sx = tp.dx - 2 * spacing;
@@ -384,21 +389,8 @@ class _JoystickPainter extends CustomPainter {
   }
 
   @override
-  void paint(Canvas canvas, Size size) {
-    if (activeCenter != null) {
-      _drawRings(canvas, activeCenter!, false);
-      _drawThumb(canvas, activeCenter!, thumb);
-    } else {
-      // Faint ghost — shows users where to put their thumb
-      _drawRings(canvas, ghostCenter, true);
-      _drawThumb(canvas, ghostCenter, Offset.zero);
-    }
-  }
-
-  @override
-  bool shouldRepaint(_JoystickPainter o) =>
-      o.activeCenter != activeCenter || o.thumb != thumb ||
-      o.ghostCenter  != ghostCenter  || o.radius != radius;
+  bool shouldRepaint(_StickPainter o) =>
+      o.center != center || o.thumb != thumb || o.radius != radius;
 }
 
 class _MouseToggleButton extends StatelessWidget {
@@ -882,9 +874,10 @@ class _TutorialOverlayState extends State<_TutorialOverlay>
           // Vertical divider
           Center(child: Container(width: 1, color: Colors.white.withOpacity(0.1))),
           // Left label
-          _half('LEFT STICK', 'movement', Icons.sports_esports, Alignment.centerLeft),
+          _half('MOVE', 'touch anywhere → stick spawns',
+              Icons.touch_app, Alignment.centerLeft),
           // Right label
-          _half('RIGHT STICK', 'touch anywhere → joystick spawns',
+          _half('CAMERA', 'touch anywhere → stick spawns',
               Icons.touch_app, Alignment.centerRight),
           // Bottom hint
           Align(alignment: Alignment.bottomCenter, child: Padding(
