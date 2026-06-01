@@ -204,27 +204,33 @@ class _MassiveRightStick extends StatefulWidget {
 }
 
 class _MassiveRightStickState extends State<_MassiveRightStick> {
-  void _update(DragUpdateDetails d) {
+  // Raw Listener approach: bypasses Flutter's gesture arena entirely.
+  // Buttons can never steal or cancel this pointer tracking.
+  int? _trackId;
+
+  void _onDown(PointerDownEvent e) {
+    _trackId ??= e.pointer; // claim the first finger that lands
+  }
+
+  void _onMove(PointerMoveEvent e) {
+    if (e.pointer != _trackId) return; // ignore other fingers
+
     if (widget.mouseMode) {
-      final sens  = WebSocketService.instance.sensitivity.mouseSensitivity;
-      final speed = sens / 10.0;
+      final sens = WebSocketService.instance.sensitivity.mouseSensitivity;
       WebSocketService.instance.send({
         'type': 'mouse_move',
-        'dx': (d.delta.dx * speed).round(),
-        'dy': (d.delta.dy * speed).round(),
+        'dx': (e.delta.dx * sens / 10.0).round(),
+        'dy': (e.delta.dy * sens / 10.0).round(),
       });
       return;
     }
 
-    // Trackpad style — finger speed drives stick value, no distance cap.
-    // Slow swipe = low value, fast swipe = high value, lift = zero.
-    if (d.delta.distance < 0.5) return; // skip sub-pixel jitter
+    if (e.delta.distance < 0.5) return; // ignore sub-pixel jitter
 
     final sens  = WebSocketService.instance.sensitivity.rightStickSensitivity;
-    const scale = 0.14; // logical-px per frame → 0..1 range
-
-    final x = (d.delta.dx  * scale * sens).clamp(-1.0, 1.0);
-    final y = (-d.delta.dy * scale * sens).clamp(-1.0, 1.0);
+    const scale = 0.14;
+    final x = (e.delta.dx  * scale * sens).clamp(-1.0, 1.0);
+    final y = (-e.delta.dy * scale * sens).clamp(-1.0, 1.0);
 
     WebSocketService.instance.send({
       'type': 'right_stick',
@@ -233,15 +239,25 @@ class _MassiveRightStickState extends State<_MassiveRightStick> {
     });
   }
 
-  void _reset() =>
-      WebSocketService.instance.send({'type': 'right_stick', 'x': 0.0, 'y': 0.0});
+  void _onUp(PointerUpEvent e) {
+    if (e.pointer != _trackId) return;
+    _trackId = null;
+    WebSocketService.instance.send({'type': 'right_stick', 'x': 0.0, 'y': 0.0});
+  }
+
+  void _onCancel(PointerCancelEvent e) {
+    if (e.pointer != _trackId) return;
+    _trackId = null;
+    WebSocketService.instance.send({'type': 'right_stick', 'x': 0.0, 'y': 0.0});
+  }
 
   @override
-  Widget build(BuildContext context) => GestureDetector(
+  Widget build(BuildContext context) => Listener(
     behavior: HitTestBehavior.translucent,
-    onPanUpdate: (d) => _update(d),
-    onPanEnd:    (_) => _reset(),
-    onPanCancel: _reset,
+    onPointerDown:   _onDown,
+    onPointerMove:   _onMove,
+    onPointerUp:     _onUp,
+    onPointerCancel: _onCancel,
     child: Container(color: Colors.transparent),
   );
 }

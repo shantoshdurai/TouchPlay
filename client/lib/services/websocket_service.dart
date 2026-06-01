@@ -24,7 +24,7 @@ class SensitivitySettings {
 
   SensitivitySettings({
     this.stickSensitivity      = 1.0,
-    this.rightStickSensitivity = 2.5,
+    this.rightStickSensitivity = 5.0,
     this.deadZone              = 0.08,
     this.mouseSensitivity      = 18.0,
     this.vibration             = true,
