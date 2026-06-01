@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
@@ -205,12 +204,9 @@ class _MassiveRightStick extends StatefulWidget {
 }
 
 class _MassiveRightStickState extends State<_MassiveRightStick> {
-  Offset? _startPos;
-
   void _update(DragUpdateDetails d) {
     if (widget.mouseMode) {
-      // Trackpad behavior: use exact finger movement delta
-      final sens = WebSocketService.instance.sensitivity.mouseSensitivity;
+      final sens  = WebSocketService.instance.sensitivity.mouseSensitivity;
       final speed = sens / 10.0;
       WebSocketService.instance.send({
         'type': 'mouse_move',
@@ -220,25 +216,15 @@ class _MassiveRightStickState extends State<_MassiveRightStick> {
       return;
     }
 
-    // Joystick behavior
-    if (_startPos == null) return;
-    
-    // We treat the start position as the center of an imaginary joystick
-    // The "radius" of this joystick will be around 100 pixels
-    final double maxDist = 120.0;
-    
-    var delta = d.localPosition - _startPos!;
-    if (delta.distance > maxDist) delta = delta / delta.distance * maxDist;
+    // Trackpad style — finger speed drives stick value, no distance cap.
+    // Slow swipe = low value, fast swipe = high value, lift = zero.
+    if (d.delta.distance < 0.5) return; // skip sub-pixel jitter
 
-    final nx = delta.dx / maxDist;
-    final ny = -delta.dy / maxDist;
-    
-    final sens = WebSocketService.instance.sensitivity.rightStickSensitivity;
-    final dead = WebSocketService.instance.sensitivity.deadZone;
-        
-    final mag = sqrt(nx * nx + ny * ny);
-    final x = mag < dead ? 0.0 : (nx * sens).clamp(-1.0, 1.0);
-    final y = mag < dead ? 0.0 : (ny * sens).clamp(-1.0, 1.0);
+    final sens  = WebSocketService.instance.sensitivity.rightStickSensitivity;
+    const scale = 0.09; // logical-px per frame → 0..1 range
+
+    final x = (d.delta.dx  * scale * sens).clamp(-1.0, 1.0);
+    final y = (-d.delta.dy * scale * sens).clamp(-1.0, 1.0);
 
     WebSocketService.instance.send({
       'type': 'right_stick',
@@ -247,26 +233,17 @@ class _MassiveRightStickState extends State<_MassiveRightStick> {
     });
   }
 
-  void _reset() {
-    _startPos = null;
-    if (!widget.mouseMode) {
+  void _reset() =>
       WebSocketService.instance.send({'type': 'right_stick', 'x': 0.0, 'y': 0.0});
-    }
-  }
 
   @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      behavior: HitTestBehavior.translucent, // Allow hits to pass through empty space but still catch them
-      onPanDown: (d) => _startPos = d.localPosition,
-      onPanUpdate: (d) => _update(d),
-      onPanEnd: (_) => _reset(),
-      onPanCancel: _reset,
-      child: Container(
-        color: Colors.transparent, 
-      ),
-    );
-  }
+  Widget build(BuildContext context) => GestureDetector(
+    behavior: HitTestBehavior.translucent,
+    onPanUpdate: (d) => _update(d),
+    onPanEnd:    (_) => _reset(),
+    onPanCancel: _reset,
+    child: Container(color: Colors.transparent),
+  );
 }
 
 class _MouseToggleButton extends StatelessWidget {
