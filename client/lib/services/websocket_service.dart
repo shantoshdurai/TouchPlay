@@ -17,13 +17,17 @@ const _maxQueue     = 10;
 // Sensitivity defaults
 class SensitivitySettings {
   double stickSensitivity;
+  double rightStickSensitivity;
   double deadZone;
   double mouseSensitivity;
+  bool   vibration;
 
   SensitivitySettings({
-    this.stickSensitivity = 1.0,
-    this.deadZone         = 0.08,
-    this.mouseSensitivity = 18.0,
+    this.stickSensitivity      = 1.0,
+    this.rightStickSensitivity = 1.0,
+    this.deadZone              = 0.08,
+    this.mouseSensitivity      = 18.0,
+    this.vibration             = true,
   });
 }
 

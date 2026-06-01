@@ -233,7 +233,7 @@ class _MassiveRightStickState extends State<_MassiveRightStick> {
     final nx = delta.dx / maxDist;
     final ny = -delta.dy / maxDist;
     
-    final sens = WebSocketService.instance.sensitivity.stickSensitivity;
+    final sens = WebSocketService.instance.sensitivity.rightStickSensitivity;
     final dead = WebSocketService.instance.sensitivity.deadZone;
         
     final mag = sqrt(nx * nx + ny * ny);
@@ -356,59 +356,74 @@ class _SettingsPanel extends StatefulWidget {
 }
 
 class _SettingsPanelState extends State<_SettingsPanel> {
-  late double _stick;
+  late double _leftStick;
+  late double _rightStick;
   late double _dead;
   late double _mouse;
+  late bool   _vibration;
 
   @override
   void initState() {
     super.initState();
-    final s = WebSocketService.instance.sensitivity;
-    _stick = s.stickSensitivity;
-    _dead  = s.deadZone;
-    _mouse = s.mouseSensitivity;
+    final s     = WebSocketService.instance.sensitivity;
+    _leftStick  = s.stickSensitivity;
+    _rightStick = s.rightStickSensitivity;
+    _dead       = s.deadZone;
+    _mouse      = s.mouseSensitivity;
+    _vibration  = s.vibration;
   }
 
   @override
   Widget build(BuildContext context) {
+    final sz = MediaQuery.of(context).size;
     return GestureDetector(
       onTap: widget.onClose,
       child: Container(
-        color: Colors.black54,
+        color: Colors.black.withOpacity(0.82),
         child: Center(
           child: GestureDetector(
             onTap: () {},
             child: Container(
-              width: 320,
-              padding: const EdgeInsets.all(24),
+              width: (sz.width * 0.52).clamp(300.0, 420.0),
+              constraints: BoxConstraints(maxHeight: sz.height * 0.9),
               decoration: BoxDecoration(
-                color: const Color(0xFF12121E),
-                borderRadius: BorderRadius.circular(20),
-                border: Border.all(color: const Color(0xFF3A3A55)),
+                color: const Color(0xFF0D0D1A),
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: const Color(0xFF252535)),
               ),
               child: Column(mainAxisSize: MainAxisSize.min, children: [
-                Row(children: [
-                  const Text('Settings', style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
-                  const Spacer(),
-                  GestureDetector(onTap: widget.onClose,
-                    child: const Icon(Icons.close, color: Colors.white54)),
-                ]),
-                const SizedBox(height: 20),
-                _slider('Stick Sensitivity', _stick, 0.3, 2.0, (v) {
-                  setState(() => _stick = v);
-                  WebSocketService.instance.sensitivity.stickSensitivity = v;
-                }),
-                _slider('Dead Zone', _dead, 0.01, 0.25, (v) {
-                  setState(() => _dead = v);
-                  WebSocketService.instance.sensitivity.deadZone = v;
-                }),
-                _slider('Mouse Speed', _mouse, 5, 40, (v) {
-                  setState(() => _mouse = v);
-                  WebSocketService.instance.sensitivity.mouseSensitivity = v;
-                }),
-                const SizedBox(height: 8),
-                const Text('Tap anywhere outside to close',
-                    style: TextStyle(color: Colors.white24, fontSize: 11)),
+                _header(),
+                const Divider(color: Color(0xFF252535), height: 1),
+                Flexible(
+                  child: SingleChildScrollView(
+                    child: Column(children: [
+                      _section('CONTROLS'),
+                      _toggleRow('Vibration', _vibration, (v) {
+                        setState(() => _vibration = v);
+                        WebSocketService.instance.sensitivity.vibration = v;
+                      }),
+                      _section('SENSITIVITY'),
+                      _sliderRow('Left Stick',  _leftStick,  0.3,  2.0,  (v) {
+                        setState(() => _leftStick = v);
+                        WebSocketService.instance.sensitivity.stickSensitivity = v;
+                      }),
+                      _sliderRow('Right Stick', _rightStick, 0.3,  2.0,  (v) {
+                        setState(() => _rightStick = v);
+                        WebSocketService.instance.sensitivity.rightStickSensitivity = v;
+                      }),
+                      _sliderRow('Dead Zone',   _dead,       0.01, 0.25, (v) {
+                        setState(() => _dead = v);
+                        WebSocketService.instance.sensitivity.deadZone = v;
+                      }),
+                      _section('MOUSE'),
+                      _sliderRow('Speed', _mouse, 5, 40, (v) {
+                        setState(() => _mouse = v);
+                        WebSocketService.instance.sensitivity.mouseSensitivity = v;
+                      }),
+                      const SizedBox(height: 12),
+                    ]),
+                  ),
+                ),
               ]),
             ),
           ),
@@ -417,22 +432,147 @@ class _SettingsPanelState extends State<_SettingsPanel> {
     );
   }
 
-  Widget _slider(String label, double val, double min, double max, ValueChanged<double> onChanged) {
-    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      Row(children: [
-        Text(label, style: const TextStyle(color: Colors.white70, fontSize: 13)),
-        const Spacer(),
-        Text(val.toStringAsFixed(2), style: const TextStyle(color: Colors.white, fontSize: 13)),
-      ]),
-      Slider(
-        value: val, min: min, max: max,
-        activeColor: Colors.white,
-        inactiveColor: Colors.white24,
-        onChanged: onChanged,
+  Widget _header() => Padding(
+    padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+    child: Row(children: [
+      const Text('SETTINGS', style: TextStyle(
+        color: Colors.white, fontSize: 12,
+        fontWeight: FontWeight.bold, letterSpacing: 2.5,
+      )),
+      const Spacer(),
+      GestureDetector(
+        onTap: widget.onClose,
+        child: Container(
+          padding: const EdgeInsets.all(5),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(6),
+            border: Border.all(color: const Color(0xFF3A3A55)),
+          ),
+          child: const Icon(Icons.close, color: Colors.white54, size: 14),
+        ),
       ),
-      const SizedBox(height: 4),
-    ]);
-  }
+    ]),
+  );
+
+  Widget _section(String title) => Padding(
+    padding: const EdgeInsets.fromLTRB(18, 14, 18, 2),
+    child: Row(children: [
+      Text(title, style: const TextStyle(
+        color: Color(0xFF00D4FF), fontSize: 9,
+        fontWeight: FontWeight.bold, letterSpacing: 2,
+      )),
+      const SizedBox(width: 8),
+      Expanded(child: Container(height: 1, color: const Color(0x1A00D4FF))),
+    ]),
+  );
+
+  Widget _toggleRow(String label, bool value, ValueChanged<bool> onChanged) => Padding(
+    padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
+    child: Row(children: [
+      Text(label, style: const TextStyle(color: Colors.white70, fontSize: 13)),
+      const Spacer(),
+      _TogglePair(value: value, onChanged: onChanged),
+    ]),
+  );
+
+  Widget _sliderRow(String label, double value, double min, double max,
+      ValueChanged<double> onChanged) =>
+    Padding(
+      padding: const EdgeInsets.fromLTRB(18, 8, 18, 0),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(children: [
+          Text(label, style: const TextStyle(color: Colors.white70, fontSize: 13)),
+          const Spacer(),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+            decoration: BoxDecoration(
+              color: const Color(0xFF1A1A2E),
+              borderRadius: BorderRadius.circular(5),
+              border: Border.all(color: const Color(0xFF3A3A55)),
+            ),
+            child: Text(value.toStringAsFixed(2), style: const TextStyle(
+              color: Color(0xFF00D4FF), fontSize: 11, fontWeight: FontWeight.bold,
+            )),
+          ),
+        ]),
+        SliderTheme(
+          data: SliderThemeData(
+            trackHeight: 2,
+            thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
+            overlayShape: const RoundSliderOverlayShape(overlayRadius: 12),
+            activeTrackColor: const Color(0xFF00D4FF),
+            inactiveTrackColor: const Color(0xFF252535),
+            thumbColor: Colors.white,
+            overlayColor: const Color(0x1500D4FF),
+          ),
+          child: Slider(value: value, min: min, max: max, onChanged: onChanged),
+        ),
+      ]),
+    );
+}
+
+// ── Toggle pair (✓ ON / ✗ OFF) ────────────────────────────────────────────────
+
+class _TogglePair extends StatelessWidget {
+  const _TogglePair({required this.value, required this.onChanged});
+  final bool value;
+  final ValueChanged<bool> onChanged;
+
+  @override
+  Widget build(BuildContext context) => Row(mainAxisSize: MainAxisSize.min, children: [
+    _ToggleBtn(
+      label: 'ON',  icon: Icons.check,
+      active: value,  activeColor: const Color(0xFF00D4FF),
+      onTap: () => onChanged(true),  isLeft: true,
+    ),
+    _ToggleBtn(
+      label: 'OFF', icon: Icons.close,
+      active: !value, activeColor: const Color(0xFFE53935),
+      onTap: () => onChanged(false), isLeft: false,
+    ),
+  ]);
+}
+
+class _ToggleBtn extends StatelessWidget {
+  const _ToggleBtn({
+    required this.label,    required this.icon,
+    required this.active,   required this.activeColor,
+    required this.onTap,    required this.isLeft,
+  });
+  final String label;
+  final IconData icon;
+  final bool active;
+  final Color activeColor;
+  final VoidCallback onTap;
+  final bool isLeft;
+
+  @override
+  Widget build(BuildContext context) => GestureDetector(
+    onTap: onTap,
+    child: AnimatedContainer(
+      duration: const Duration(milliseconds: 180),
+      padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 6),
+      decoration: BoxDecoration(
+        color: active ? activeColor.withOpacity(0.15) : Colors.transparent,
+        borderRadius: BorderRadius.horizontal(
+          left:  isLeft  ? const Radius.circular(7) : Radius.zero,
+          right: !isLeft ? const Radius.circular(7) : Radius.zero,
+        ),
+        border: Border.all(
+          color: active ? activeColor : const Color(0xFF3A3A55),
+        ),
+      ),
+      child: Row(mainAxisSize: MainAxisSize.min, children: [
+        Icon(icon, size: 12, color: active ? activeColor : Colors.white24),
+        const SizedBox(width: 4),
+        Text(label, style: TextStyle(
+          color: active ? activeColor : Colors.white24,
+          fontSize: 11,
+          fontWeight: active ? FontWeight.bold : FontWeight.normal,
+        )),
+      ]),
+    ),
+  );
 }
 
 // ── Background glow ───────────────────────────────────────────────────────────
