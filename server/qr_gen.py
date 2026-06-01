@@ -1,5 +1,8 @@
 import socket
-import qrcode
+import sys
+import io
+
+sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', line_buffering=True)
 
 
 def get_best_ip() -> str:
@@ -10,13 +13,12 @@ def get_best_ip() -> str:
         for info in socket.getaddrinfo(hostname, None):
             addr = info[4][0]
             if addr.startswith("192.168.42."):
-                return addr  # USB tethering — highest priority
+                return addr
             if not addr.startswith("127.") and ":" not in addr:
                 candidates.append(addr)
     except Exception:
         pass
 
-    # Fallback: connect to external address and read local side
     try:
         with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
             s.connect(("8.8.8.8", 80))
@@ -30,23 +32,17 @@ def get_best_ip() -> str:
 
 
 def generate_qr(port: int = 8765) -> str:
-    """Generate qr.png for ws://<ip>:<port>, return the IP string."""
-    ip = get_best_ip()
-    url = f"ws://{ip}:{port}"
+    ip  = get_best_ip()
+    W   = 42
+    ln  = "─" * W
 
-    # The QR code is printed directly to the terminal
-
-    # Print the QR code directly to the terminal
-    import sys
-    import io
-    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
-    
-    qr = qrcode.QRCode()
-    qr.add_data(url)
-    qr.make()
-    
-    print(f"\n[ SCAN THIS QR CODE OR TYPE THE IP: {ip} ]\n")
-    qr.print_ascii()
-    print("\n")
+    print(f"\n  ┌{ln}┐")
+    print(f"  │{'SERVER READY':^{W}}│")
+    print(f"  ├{ln}┤")
+    print(f"  │ {'IP    :  ' + ip:<{W-1}}│")
+    print(f"  │ {'Port  :  ' + str(port):<{W-1}}│")
+    print(f"  ├{ln}┤")
+    print(f"  │ {'Open the app — it auto-connects.':<{W-1}}│")
+    print(f"  └{ln}┘\n")
 
     return ip

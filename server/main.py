@@ -93,8 +93,8 @@ async def handler(websocket):
 
 async def main():
     ip = generate_qr(PORT)
-    # Most startup logs are handled by run_server.bat and generate_qr
-    
+    print("  Waiting for phone...\n")
+
     async with websockets.serve(handler, "0.0.0.0", PORT):
         await asyncio.gather(
             asyncio.Future(),

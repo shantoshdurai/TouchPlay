@@ -66,7 +66,7 @@ class WebSocketService with WidgetsBindingObserver {
     _manualIp = prefs.getString('manual_ip');
     _running  = true;
     _startUdpDiscovery();
-    _scheduleConnect();
+    _scheduleConnect(immediately: true);
   }
 
   @override

@@ -1,5 +1,5 @@
 @echo off
-title FH6 Controller Server
+title TouchPlay Controller - Server
 
 python --version >nul 2>&1
 if errorlevel 1 (
@@ -7,23 +7,26 @@ if errorlevel 1 (
     pause & exit /b 1
 )
 
-:: Install requirements silently and disable the pip update warning
+:: Install requirements silently
 pip install -r "%~dp0server\requirements.txt" -q --disable-pip-version-check
-if errorlevel 1 (echo [ERROR] pip install failed. & pause & exit /b 1)
 
-:: Clear the screen for a clean, minimalistic terminal
+:: Set UTF-8 so box-drawing characters render correctly
+chcp 65001 >nul 2>&1
+
+:: Clear the screen for a clean terminal
 cls
 
 echo.
 echo  ==========================================
-echo   Universal Gamepad Controller - Server
+echo   TouchPlay Controller  ^|  Server
 echo  ==========================================
 echo.
 
-:: ADB forward — tunnels phone localhost:8765 to this PC's port 8765
+:: ADB: port-forward so phone's localhost:8765 tunnels to this PC
 set ADB=%LOCALAPPDATA%\Android\Sdk\platform-tools\adb.exe
 if exist "%ADB%" (
     "%ADB%" forward tcp:8765 tcp:8765 >nul 2>&1
+    "%ADB%" shell am start -n com.fh6controller.fh6_controller/.MainActivity >nul 2>&1
 )
 
 cd /d "%~dp0server"

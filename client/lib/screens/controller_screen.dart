@@ -55,16 +55,31 @@ class _ControllerScreenState extends State<ControllerScreen> {
             child: _MassiveRightStick(mouseMode: _mouseMode),
           ),
 
-          // 3. Status bar
+          // 3. Connection chip (top-left, compact)
           Positioned(
-            top: 0, left: 0, right: 0,
+            top: 0, left: 8,
             child: SafeArea(
               bottom: false,
-              child: _StatusBar(
-                state: _conn,
-                ip: WebSocketService.instance.currentIp ?? '',
-                onTap: () => _showDialog(context),
-                onSettings: () => setState(() => _showSettings = !_showSettings),
+              child: Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: _ConnChip(
+                  state: _conn,
+                  ip: WebSocketService.instance.currentIp ?? '',
+                  onTap: () => _showDialog(context),
+                ),
+              ),
+            ),
+          ),
+          // Settings button (top-right, compact)
+          Positioned(
+            top: 0, right: 8,
+            child: SafeArea(
+              bottom: false,
+              child: Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: _SettingsBtn(
+                  onTap: () => setState(() => _showSettings = !_showSettings),
+                ),
               ),
             ),
           ),
@@ -455,18 +470,18 @@ class _GlowPainter extends CustomPainter {
   @override bool shouldRepaint(_) => false;
 }
 
-// ── Status bar ────────────────────────────────────────────────────────────────
+// ── Connection chip + Settings button ─────────────────────────────────────────
 
-class _StatusBar extends StatefulWidget {
-  const _StatusBar({required this.state, required this.ip, required this.onTap, required this.onSettings});
+class _ConnChip extends StatefulWidget {
+  const _ConnChip({required this.state, required this.ip, required this.onTap});
   final ws.ConnectionState state;
   final String ip;
-  final VoidCallback onTap, onSettings;
-  @override State<_StatusBar> createState() => _StatusBarState();
+  final VoidCallback onTap;
+  @override State<_ConnChip> createState() => _ConnChipState();
 }
 
-class _StatusBarState extends State<_StatusBar> with SingleTickerProviderStateMixin {
-  late AnimationController _pulse;
+class _ConnChipState extends State<_ConnChip> with SingleTickerProviderStateMixin {
+  late final AnimationController _pulse;
   @override
   void initState() {
     super.initState();
@@ -477,53 +492,60 @@ class _StatusBarState extends State<_StatusBar> with SingleTickerProviderStateMi
 
   @override
   Widget build(BuildContext context) {
-    Color dot; String label;
+    Color dotColor; String label;
     switch (widget.state) {
       case ws.ConnectionState.connected:
-        dot = const Color(0xFF1DB954); label = 'Connected';
+        dotColor = const Color(0xFF1DB954); label = 'Connected';
       case ws.ConnectionState.connecting:
-        dot = const Color(0xFFF9A825); label = 'Connecting…';
+        dotColor = const Color(0xFFF9A825); label = 'Connecting';
       case ws.ConnectionState.disconnected:
-        dot = const Color(0xFFE53935); label = 'Disconnected';
+        dotColor = const Color(0xFFE53935); label = 'Offline';
     }
+    final dot = Container(
+      width: 7, height: 7,
+      decoration: BoxDecoration(shape: BoxShape.circle, color: dotColor),
+    );
     return GestureDetector(
       onTap: widget.onTap,
       child: Container(
-        height: 28, color: Colors.black38,
-        padding: const EdgeInsets.symmetric(horizontal: 12),
-        child: Row(children: [
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        decoration: BoxDecoration(
+          color: const Color(0x99000000),
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: Colors.white12, width: 1),
+        ),
+        child: Row(mainAxisSize: MainAxisSize.min, children: [
           widget.state == ws.ConnectionState.connecting
-              ? FadeTransition(opacity: _pulse, child: _Dot(color: dot))
-              : _Dot(color: dot),
-          const SizedBox(width: 6),
-          Text(label, style: const TextStyle(color: Colors.white60, fontSize: 11)),
+              ? FadeTransition(opacity: _pulse, child: dot)
+              : dot,
+          const SizedBox(width: 5),
+          Text(label, style: const TextStyle(color: Colors.white60, fontSize: 10)),
           if (widget.ip.isNotEmpty) ...[
-            const SizedBox(width: 6),
-            Text(widget.ip, style: const TextStyle(color: Colors.white30, fontSize: 10)),
+            const SizedBox(width: 5),
+            Text(widget.ip, style: const TextStyle(color: Colors.white30, fontSize: 9)),
           ],
-          const SizedBox(width: 4),
-          Text('• tap to change IP', style: TextStyle(color: Colors.white.withOpacity(0.12), fontSize: 9)),
-          const Spacer(),
-          GestureDetector(
-            onTap: widget.onSettings,
-            child: const Padding(
-              padding: EdgeInsets.all(8.0),
-              child: Icon(Icons.settings, color: Colors.white, size: 22),
-            ),
-          ),
         ]),
       ),
     );
   }
 }
 
-class _Dot extends StatelessWidget {
-  const _Dot({required this.color});
-  final Color color;
+class _SettingsBtn extends StatelessWidget {
+  const _SettingsBtn({required this.onTap});
+  final VoidCallback onTap;
+
   @override
-  Widget build(BuildContext context) => Container(
-    width: 8, height: 8,
-    decoration: BoxDecoration(shape: BoxShape.circle, color: color),
+  Widget build(BuildContext context) => GestureDetector(
+    onTap: onTap,
+    child: Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: const Color(0x99000000),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: Colors.white12, width: 1),
+      ),
+      child: const Icon(Icons.settings, color: Colors.white60, size: 16),
+    ),
   );
 }
 
