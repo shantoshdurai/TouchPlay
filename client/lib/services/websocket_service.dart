@@ -9,7 +9,7 @@ enum ConnectionState { connected, connecting, disconnected }
 
 const _port         = 8765;
 const _udpPort      = 8766;
-const _pingInterval = Duration(seconds: 3);
+const _pingInterval = Duration(seconds: 1);   // 1s for live latency readout
 const _pongTimeout  = Duration(seconds: 5);
 const _reconnectDelay = Duration(seconds: 2);
 const _maxQueue     = 10;
@@ -42,6 +42,13 @@ class WebSocketService with WidgetsBindingObserver {
   Stream<ConnectionState> get stateStream => _stateCtrl.stream;
   ConnectionState _state = ConnectionState.disconnected;
   ConnectionState get state => _state;
+
+  // Latency (round-trip ping → pong, in ms)
+  final _latencyCtrl = StreamController<int>.broadcast();
+  Stream<int> get latencyStream => _latencyCtrl.stream;
+  int? _latencyMs;
+  int? get latencyMs => _latencyMs;
+  DateTime? _pingSentAt;
 
   // Discovered server IP (via UDP)
   String? _discoveredIp;
@@ -83,9 +90,7 @@ class WebSocketService with WidgetsBindingObserver {
         _tryConnect(silent: false);
       } else {
         // Send a ping immediately to verify connection is still alive
-        send({'type': 'ping'});
-        _pongTimer?.cancel();
-        _pongTimer = Timer(_pongTimeout, _onDisconnected);
+        _sendPing();
       }
     }
   }
@@ -204,10 +209,23 @@ class WebSocketService with WidgetsBindingObserver {
     }
   }
 
+  void _sendPing() {
+    _pingSentAt = DateTime.now();
+    send({'type': 'ping'});
+    _pongTimer?.cancel();
+    _pongTimer = Timer(_pongTimeout, _onDisconnected);
+  }
+
   void _onMessage(dynamic raw) {
     try {
       final data = json.decode(raw as String) as Map<String, dynamic>;
-      if (data['type'] == 'pong') _pongTimer?.cancel();
+      if (data['type'] == 'pong') {
+        _pongTimer?.cancel();
+        if (_pingSentAt != null) {
+          _latencyMs = DateTime.now().difference(_pingSentAt!).inMilliseconds;
+          _latencyCtrl.add(_latencyMs!);
+        }
+      }
     } catch (_) {}
   }
 
@@ -216,6 +234,7 @@ class WebSocketService with WidgetsBindingObserver {
     _pongTimer?.cancel();
     _sub?.cancel();
     _channel = null;
+    _latencyMs = null;
     _setState(ConnectionState.disconnected);
     if (_running) _scheduleConnect();
   }
@@ -236,9 +255,7 @@ class WebSocketService with WidgetsBindingObserver {
     _pingTimer?.cancel();
     _pingTimer = Timer.periodic(_pingInterval, (_) {
       if (_state != ConnectionState.connected) return;
-      send({'type': 'ping'});
-      _pongTimer?.cancel();
-      _pongTimer = Timer(_pongTimeout, _onDisconnected);
+      _sendPing();
     });
   }
 

@@ -1,8 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:mobile_scanner/mobile_scanner.dart';
-import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../services/websocket_service.dart';
 import '../services/websocket_service.dart' as ws;
@@ -82,7 +80,6 @@ class _ControllerScreenState extends State<ControllerScreen> {
                 padding: const EdgeInsets.only(top: 4),
                 child: _ConnChip(
                   state: _conn,
-                  ip: WebSocketService.instance.currentIp ?? '',
                   onTap: () => _showDialog(context),
                 ),
               ),
@@ -505,52 +502,63 @@ class _SettingsPanelState extends State<_SettingsPanel> {
     return GestureDetector(
       onTap: widget.onClose,
       child: Container(
-        color: Colors.black.withOpacity(0.82),
+        color: Colors.black.withOpacity(0.78),
         child: Center(
           child: GestureDetector(
             onTap: () {},
             child: Container(
-              width: (sz.width * 0.52).clamp(300.0, 420.0),
-              constraints: BoxConstraints(maxHeight: sz.height * 0.9),
+              width: (sz.width * 0.55).clamp(320.0, 440.0),
+              constraints: BoxConstraints(maxHeight: sz.height * 0.92),
               decoration: BoxDecoration(
-                color: const Color(0xFF0D0D1A),
-                borderRadius: BorderRadius.circular(14),
-                border: Border.all(color: const Color(0xFF252535)),
+                color: const Color(0xFF0D0D14),
+                borderRadius: BorderRadius.circular(18),
+                border: Border.all(color: const Color(0xFF20202C)),
               ),
               child: Column(mainAxisSize: MainAxisSize.min, children: [
                 _header(),
-                const Divider(color: Color(0xFF252535), height: 1),
                 Flexible(
                   child: SingleChildScrollView(
-                    child: Column(children: [
-                      _section('CONTROLS'),
+                    padding: const EdgeInsets.fromLTRB(20, 2, 20, 16),
+                    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                      _section('Sticks'),
+                      _sliderRow('Left sensitivity', _leftStick, 0.3, 2.0, (v) {
+                        setState(() => _leftStick = v);
+                        WebSocketService.instance.sensitivity.stickSensitivity = v;
+                      }),
+                      _sliderRow('Right sensitivity', _rightStick, 0.5, 3.0, (v) {
+                        setState(() => _rightStick = v);
+                        WebSocketService.instance.sensitivity.rightStickSensitivity = v;
+                      }),
+                      _sliderRow('Size', _joyRadius, 0.5, 2.0, (v) {
+                        setState(() => _joyRadius = v);
+                        WebSocketService.instance.sensitivity.joyRadius = v;
+                      }),
+                      _sliderRow('Dead zone', _dead, 0.01, 0.25, (v) {
+                        setState(() => _dead = v);
+                        WebSocketService.instance.sensitivity.deadZone = v;
+                      }, fmt: (v) => '${(v * 100).round()}%'),
+                      const SizedBox(height: 16),
+                      _section('Mouse'),
+                      _sliderRow('Speed', _mouse, 5, 40, (v) {
+                        setState(() => _mouse = v);
+                        WebSocketService.instance.sensitivity.mouseSensitivity = v;
+                      }, fmt: (v) => v.toStringAsFixed(0)),
+                      const SizedBox(height: 16),
+                      _section('General'),
                       _toggleRow('Vibration', _vibration, (v) {
                         setState(() => _vibration = v);
                         WebSocketService.instance.sensitivity.vibration = v;
                       }),
-                      _section('SENSITIVITY'),
-                      _sliderRow('Left Stick',  _leftStick,  0.3,  2.0,  (v) {
-                        setState(() => _leftStick = v);
-                        WebSocketService.instance.sensitivity.stickSensitivity = v;
-                      }),
-                      _sliderRow('Right Stick',  _rightStick, 0.5,  3.0, (v) {
-                        setState(() => _rightStick = v);
-                        WebSocketService.instance.sensitivity.rightStickSensitivity = v;
-                      }),
-                      _sliderRow('Stick Size', _joyRadius, 0.5, 2.0, (v) {
-                        setState(() => _joyRadius = v);
-                        WebSocketService.instance.sensitivity.joyRadius = v;
-                      }),
-                      _sliderRow('Dead Zone',   _dead,       0.01, 0.25, (v) {
-                        setState(() => _dead = v);
-                        WebSocketService.instance.sensitivity.deadZone = v;
-                      }),
-                      _section('MOUSE'),
-                      _sliderRow('Speed', _mouse, 5, 40, (v) {
-                        setState(() => _mouse = v);
-                        WebSocketService.instance.sensitivity.mouseSensitivity = v;
-                      }),
-                      const SizedBox(height: 12),
+                      const SizedBox(height: 18),
+                      Center(child: GestureDetector(
+                        onTap: _resetDefaults,
+                        child: Padding(
+                          padding: const EdgeInsets.all(6),
+                          child: Text('Reset to defaults', style: TextStyle(
+                            color: Colors.white.withOpacity(0.4), fontSize: 12,
+                            decoration: TextDecoration.underline)),
+                        ),
+                      )),
                     ]),
                   ),
                 ),
@@ -562,76 +570,78 @@ class _SettingsPanelState extends State<_SettingsPanel> {
     );
   }
 
+  void _resetDefaults() {
+    final d = SensitivitySettings();
+    final s = WebSocketService.instance.sensitivity;
+    s.stickSensitivity      = d.stickSensitivity;
+    s.rightStickSensitivity = d.rightStickSensitivity;
+    s.deadZone              = d.deadZone;
+    s.mouseSensitivity      = d.mouseSensitivity;
+    s.vibration             = d.vibration;
+    s.joyRadius             = d.joyRadius;
+    setState(() {
+      _leftStick  = d.stickSensitivity;
+      _rightStick = d.rightStickSensitivity;
+      _dead       = d.deadZone;
+      _mouse      = d.mouseSensitivity;
+      _vibration  = d.vibration;
+      _joyRadius  = d.joyRadius;
+    });
+  }
+
   Widget _header() => Padding(
-    padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+    padding: const EdgeInsets.fromLTRB(20, 16, 14, 10),
     child: Row(children: [
-      const Text('SETTINGS', style: TextStyle(
-        color: Colors.white, fontSize: 12,
-        fontWeight: FontWeight.bold, letterSpacing: 2.5,
-      )),
+      const Text('Settings', style: TextStyle(
+        color: Colors.white, fontSize: 17, fontWeight: FontWeight.w600)),
       const Spacer(),
       GestureDetector(
         onTap: widget.onClose,
         child: Container(
-          padding: const EdgeInsets.all(5),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(6),
-            border: Border.all(color: const Color(0xFF3A3A55)),
-          ),
-          child: const Icon(Icons.close, color: Colors.white54, size: 14),
+          padding: const EdgeInsets.all(6),
+          decoration: const BoxDecoration(
+            shape: BoxShape.circle, color: Color(0xFF1A1A24)),
+          child: const Icon(Icons.close, color: Colors.white54, size: 16),
         ),
       ),
     ]),
   );
 
   Widget _section(String title) => Padding(
-    padding: const EdgeInsets.fromLTRB(18, 14, 18, 2),
-    child: Row(children: [
-      Text(title, style: const TextStyle(
-        color: Color(0xFF00D4FF), fontSize: 9,
-        fontWeight: FontWeight.bold, letterSpacing: 2,
-      )),
-      const SizedBox(width: 8),
-      Expanded(child: Container(height: 1, color: const Color(0x1A00D4FF))),
-    ]),
+    padding: const EdgeInsets.only(top: 6, bottom: 4),
+    child: Text(title.toUpperCase(), style: const TextStyle(
+      color: Color(0xFF00D4FF), fontSize: 10,
+      fontWeight: FontWeight.bold, letterSpacing: 2)),
   );
 
   Widget _toggleRow(String label, bool value, ValueChanged<bool> onChanged) => Padding(
-    padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
+    padding: const EdgeInsets.symmetric(vertical: 8),
     child: Row(children: [
-      Text(label, style: const TextStyle(color: Colors.white70, fontSize: 13)),
+      Text(label, style: const TextStyle(color: Colors.white, fontSize: 14)),
       const Spacer(),
       _TogglePair(value: value, onChanged: onChanged),
     ]),
   );
 
   Widget _sliderRow(String label, double value, double min, double max,
-      ValueChanged<double> onChanged) =>
+      ValueChanged<double> onChanged, {String Function(double)? fmt}) =>
     Padding(
-      padding: const EdgeInsets.fromLTRB(18, 8, 18, 0),
+      padding: const EdgeInsets.only(top: 10),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Row(children: [
-          Text(label, style: const TextStyle(color: Colors.white70, fontSize: 13)),
+          Text(label, style: const TextStyle(color: Colors.white, fontSize: 14)),
           const Spacer(),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
-            decoration: BoxDecoration(
-              color: const Color(0xFF1A1A2E),
-              borderRadius: BorderRadius.circular(5),
-              border: Border.all(color: const Color(0xFF3A3A55)),
-            ),
-            child: Text(value.toStringAsFixed(2), style: const TextStyle(
-              color: Color(0xFF00D4FF), fontSize: 11, fontWeight: FontWeight.bold,
-            )),
-          ),
+          Text(fmt != null ? fmt(value) : value.toStringAsFixed(1),
+            style: const TextStyle(
+              color: Color(0xFF00D4FF), fontSize: 13, fontWeight: FontWeight.w600)),
         ]),
         SliderTheme(
           data: SliderThemeData(
-            trackHeight: 2,
-            thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
-            overlayShape: const RoundSliderOverlayShape(overlayRadius: 12),
+            trackHeight: 3,
+            thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 8),
+            overlayShape: const RoundSliderOverlayShape(overlayRadius: 16),
             activeTrackColor: const Color(0xFF00D4FF),
-            inactiveTrackColor: const Color(0xFF252535),
+            inactiveTrackColor: const Color(0xFF20202C),
             thumbColor: Colors.white,
             overlayColor: const Color(0x1500D4FF),
           ),
@@ -743,38 +753,62 @@ class _GlowPainter extends CustomPainter {
 // ── Connection chip + Settings button ─────────────────────────────────────────
 
 class _ConnChip extends StatefulWidget {
-  const _ConnChip({required this.state, required this.ip, required this.onTap});
+  const _ConnChip({required this.state, required this.onTap});
   final ws.ConnectionState state;
-  final String ip;
   final VoidCallback onTap;
   @override State<_ConnChip> createState() => _ConnChipState();
 }
 
 class _ConnChipState extends State<_ConnChip> with SingleTickerProviderStateMixin {
   late final AnimationController _pulse;
+  StreamSubscription<int>? _latSub;
+  int? _latency;
+
   @override
   void initState() {
     super.initState();
     _pulse = AnimationController(vsync: this, duration: const Duration(milliseconds: 700))
       ..repeat(reverse: true);
+    _latency = WebSocketService.instance.latencyMs;
+    _latSub  = WebSocketService.instance.latencyStream.listen((ms) {
+      if (mounted) setState(() => _latency = ms);
+    });
   }
-  @override void dispose() { _pulse.dispose(); super.dispose(); }
+
+  @override
+  void dispose() { _latSub?.cancel(); _pulse.dispose(); super.dispose(); }
+
+  // Latency → color: green good, amber ok, red laggy
+  Color _latColor(int ms) {
+    if (ms < 40)  return const Color(0xFF1DB954);
+    if (ms < 90)  return const Color(0xFFF9A825);
+    return const Color(0xFFE53935);
+  }
 
   @override
   Widget build(BuildContext context) {
-    Color dotColor; String label;
-    switch (widget.state) {
-      case ws.ConnectionState.connected:
+    final connected = widget.state == ws.ConnectionState.connected;
+    Color dotColor; String label; Color labelColor = Colors.white60;
+
+    if (connected) {
+      if (_latency != null) {
+        dotColor   = _latColor(_latency!);
+        label      = '${_latency}ms';
+        labelColor = dotColor;
+      } else {
         dotColor = const Color(0xFF1DB954); label = 'Connected';
-      case ws.ConnectionState.connecting:
-        dotColor = const Color(0xFFF9A825); label = 'Connecting';
-      case ws.ConnectionState.disconnected:
-        dotColor = const Color(0xFFE53935); label = 'Offline';
+      }
+    } else if (widget.state == ws.ConnectionState.connecting) {
+      dotColor = const Color(0xFFF9A825); label = 'Connecting';
+    } else {
+      dotColor = const Color(0xFFE53935); label = 'Offline';
     }
+
     final dot = Container(
       width: 7, height: 7,
       decoration: BoxDecoration(shape: BoxShape.circle, color: dotColor),
     );
+
     return GestureDetector(
       onTap: widget.onTap,
       child: Container(
@@ -788,12 +822,11 @@ class _ConnChipState extends State<_ConnChip> with SingleTickerProviderStateMixi
           widget.state == ws.ConnectionState.connecting
               ? FadeTransition(opacity: _pulse, child: dot)
               : dot,
-          const SizedBox(width: 5),
-          Text(label, style: const TextStyle(color: Colors.white60, fontSize: 10)),
-          if (widget.ip.isNotEmpty) ...[
-            const SizedBox(width: 5),
-            Text(widget.ip, style: const TextStyle(color: Colors.white30, fontSize: 9)),
-          ],
+          const SizedBox(width: 6),
+          Text(label, style: TextStyle(
+            color: labelColor, fontSize: 10,
+            fontWeight: connected && _latency != null ? FontWeight.w600 : FontWeight.normal,
+          )),
         ]),
       ),
     );
@@ -899,10 +932,7 @@ class _IpDialog extends StatefulWidget {
 }
 
 class _IpDialogState extends State<_IpDialog> {
-  final _ctrl    = TextEditingController();
-  final _focusNode = FocusNode();
-  bool _scanning = false;
-  MobileScannerController? _qrCtrl;
+  final _ctrl = TextEditingController();
   late StreamSubscription<ws.ConnectionState> _sub;
   ws.ConnectionState _conn = WebSocketService.instance.state;
 
@@ -920,118 +950,93 @@ class _IpDialogState extends State<_IpDialog> {
   }
 
   @override
-  void dispose() {
-    _sub.cancel(); _ctrl.dispose(); _qrCtrl?.dispose(); super.dispose();
-  }
+  void dispose() { _sub.cancel(); _ctrl.dispose(); super.dispose(); }
 
   void _connect() {
     final ip = _ctrl.text.trim();
     if (ip.isNotEmpty) WebSocketService.instance.setManualIp(ip);
   }
 
-  void _onDetect(BarcodeCapture capture) {
-    final code = capture.barcodes.firstOrNull?.rawValue ?? '';
-    final uri  = Uri.tryParse(code);
-    if (uri != null && uri.host.isNotEmpty) {
-      _qrCtrl?.stop();
-      WebSocketService.instance.setManualIp(uri.host);
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
+    final connected = _conn == ws.ConnectionState.connected;
+    final statusColor = connected
+        ? const Color(0xFF1DB954)
+        : _conn == ws.ConnectionState.connecting
+            ? const Color(0xFFF9A825)
+            : const Color(0xFFE53935);
+    final statusText = connected ? 'Connected'
+        : _conn == ws.ConnectionState.connecting ? 'Connecting…' : 'Not connected';
+
     return Dialog(
       backgroundColor: Colors.transparent,
       insetPadding: const EdgeInsets.all(20),
-      child: SingleChildScrollView(
-        child: Container(
-          width: 360,
-          padding: const EdgeInsets.all(24),
-          decoration: BoxDecoration(
-            color: const Color(0xFF12121E),
-            borderRadius: BorderRadius.circular(20),
-            border: Border.all(color: const Color(0xFF3A3A55)),
-          ),
-          child: Column(mainAxisSize: MainAxisSize.min, children: [
-            // Header
-            Row(children: [
-              const Text('Connect to PC',
-                  style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
-              const Spacer(),
-              AnimatedContainer(
-                duration: const Duration(milliseconds: 300),
-                width: 10, height: 10,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: _conn == ws.ConnectionState.connected
-                      ? const Color(0xFF1DB954)
-                      : _conn == ws.ConnectionState.connecting
-                          ? const Color(0xFFF9A825)
-                          : const Color(0xFFE53935),
-                ),
-              ),
-            ]),
-            const SizedBox(height: 16),
-            TextField(
-              controller: _ctrl,
-              focusNode: _focusNode,
-              style: const TextStyle(color: Colors.white, fontSize: 18),
-              keyboardType: const TextInputType.numberWithOptions(decimal: true),
-              onSubmitted: (_) => _connect(),
-              decoration: InputDecoration(
-                labelText: 'PC IP Address',
-                labelStyle: const TextStyle(color: Colors.white54),
-                filled: true,
-                fillColor: const Color(0xFF1A1A2E),
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-              ),
-            ),
-            const SizedBox(height: 16),
-            if (_scanning)
-              ClipRRect(
-                borderRadius: BorderRadius.circular(12),
-                child: SizedBox(
-                  height: 180,
-                  child: MobileScanner(
-                    controller: _qrCtrl ??= MobileScannerController(),
-                    onDetect: _onDetect,
-                    errorBuilder: (context, error, child) {
-                      return const Center(child: Text('Camera error. Check permissions.', style: TextStyle(color: Colors.redAccent)));
-                    },
-                  ),
-                ),
-              ),
-            Row(children: [
-              TextButton.icon(
-                onPressed: () async {
-                  if (!_scanning) {
-                    final status = await Permission.camera.request();
-                    if (status.isGranted) {
-                      setState(() => _scanning = true);
-                    } else {
-                      if (context.mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('Camera permission required to scan QR')),
-                        );
-                      }
-                    }
-                  } else {
-                    setState(() => _scanning = false);
-                    _qrCtrl?.stop();
-                  }
-                },
-                icon: Icon(_scanning ? Icons.camera_alt_outlined : Icons.qr_code_scanner, color: Colors.white54),
-                label: Text(_scanning ? 'Hide' : 'Scan QR', style: const TextStyle(color: Colors.white54)),
-              ),
-              const Spacer(),
-              ElevatedButton(
-                onPressed: _connect,
-                style: ElevatedButton.styleFrom(backgroundColor: Colors.white),
-                child: const Text('Connect', style: TextStyle(color: Colors.black)),
-              ),
-            ]),
-          ]),
+      child: Container(
+        width: 340,
+        padding: const EdgeInsets.all(22),
+        decoration: BoxDecoration(
+          color: const Color(0xFF0D0D1A),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: const Color(0xFF252535)),
         ),
+        child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+          // Header with live status
+          Row(children: [
+            const Text('CONNECTION', style: TextStyle(
+              color: Colors.white, fontSize: 12,
+              fontWeight: FontWeight.bold, letterSpacing: 2.5)),
+            const Spacer(),
+            Container(width: 8, height: 8,
+              decoration: BoxDecoration(shape: BoxShape.circle, color: statusColor)),
+            const SizedBox(width: 6),
+            Text(statusText, style: TextStyle(color: statusColor, fontSize: 11)),
+          ]),
+          const SizedBox(height: 18),
+
+          // Helper text
+          const Text(
+            'Auto-connects over USB or same Wi-Fi.\nEnter your PC\'s IP only if it doesn\'t find it.',
+            style: TextStyle(color: Colors.white38, fontSize: 11, height: 1.4)),
+          const SizedBox(height: 14),
+
+          TextField(
+            controller: _ctrl,
+            style: const TextStyle(color: Colors.white, fontSize: 16),
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            onSubmitted: (_) => _connect(),
+            decoration: InputDecoration(
+              hintText: '192.168.1.42',
+              hintStyle: const TextStyle(color: Colors.white24),
+              labelText: 'PC IP Address',
+              labelStyle: const TextStyle(color: Colors.white54, fontSize: 13),
+              filled: true,
+              fillColor: const Color(0xFF15151F),
+              contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(10),
+                borderSide: const BorderSide(color: Color(0xFF252535))),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(10),
+                borderSide: const BorderSide(color: Color(0xFF00D4FF))),
+            ),
+          ),
+          const SizedBox(height: 16),
+
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton(
+              onPressed: _connect,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF00D4FF),
+                foregroundColor: Colors.black,
+                padding: const EdgeInsets.symmetric(vertical: 13),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              ),
+              child: const Text('Connect',
+                style: TextStyle(fontWeight: FontWeight.bold, letterSpacing: 0.5)),
+            ),
+          ),
+        ]),
       ),
     );
   }
