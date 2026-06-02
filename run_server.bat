@@ -7,8 +7,12 @@ if errorlevel 1 (
     pause & exit /b 1
 )
 
-:: Install requirements silently
-pip install -r "%~dp0server\requirements.txt" -q --disable-pip-version-check
+:: Install requirements only if missing (keeps later launches fast)
+python -c "import vgamepad, websockets" >nul 2>&1
+if errorlevel 1 (
+    echo  First run: installing dependencies, please wait...
+    pip install -r "%~dp0server\requirements.txt" -q --disable-pip-version-check
+)
 
 :: Set UTF-8 so box-drawing characters render correctly
 chcp 65001 >nul 2>&1

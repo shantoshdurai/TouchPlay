@@ -61,6 +61,13 @@ class GamepadController:
     def update(self):
         self.gamepad.update()
 
+    def reset(self):
+        """Release everything — buttons up, sticks centered, triggers at 0 —
+        and flush immediately. Called on connect/disconnect so a held input
+        (e.g. throttle) can never get 'stuck' when the phone drops."""
+        self.gamepad.reset()
+        self.gamepad.update()
+
 
 # ── Mouse injection via SendInput ─────────────────────────────────────────────
 # SendInput generates proper Raw Input events (WM_INPUT) that games read
@@ -76,8 +83,17 @@ class _MOUSEINPUT(ctypes.Structure):
         ("dwExtraInfo", ctypes.POINTER(ctypes.c_ulong)),
     ]
 
+class _KEYBDINPUT(ctypes.Structure):
+    _fields_ = [
+        ("wVk",         ctypes.c_ushort),
+        ("wScan",       ctypes.c_ushort),
+        ("dwFlags",     ctypes.c_ulong),
+        ("time",        ctypes.c_ulong),
+        ("dwExtraInfo", ctypes.POINTER(ctypes.c_ulong)),
+    ]
+
 class _INPUT_UNION(ctypes.Union):
-    _fields_ = [("mi", _MOUSEINPUT)]
+    _fields_ = [("mi", _MOUSEINPUT), ("ki", _KEYBDINPUT)]
 
 class _INPUT(ctypes.Structure):
     _anonymous_ = ("_input",)
@@ -108,3 +124,82 @@ def mouse_click(button: str = "left") -> None:
         _send(_LDN); _send(_LUP)
     elif button == "right":
         _send(_RDN); _send(_RUP)
+
+
+# Track held keys / mouse buttons so we can release them all on reset or
+# disconnect — stops a held W or mouse button from sticking if the phone
+# backgrounds or drops mid-press.
+_keys_down = set()
+_mouse_held = set()
+
+def mouse_down(button: str = "left") -> None:
+    _mouse_held.add(button)
+    _send(_LDN if button == "left" else _RDN)
+
+def mouse_up(button: str = "left") -> None:
+    _mouse_held.discard(button)
+    _send(_LUP if button == "left" else _RUP)
+
+
+# ── Keyboard injection via SendInput ──────────────────────────────────────────
+# Lets custom layouts bind buttons to real keys (WASD, Space, E, Shift, …) so a
+# touch layout can drive keyboard+mouse games, not just gamepad ones.
+
+_KEYUP = 0x0002
+
+_VK = {
+    "SPACE": 0x20, "ENTER": 0x0D, "RETURN": 0x0D, "ESC": 0x1B, "ESCAPE": 0x1B,
+    "TAB": 0x09, "SHIFT": 0x10, "CTRL": 0x11, "CONTROL": 0x11, "ALT": 0x12,
+    "BACKSPACE": 0x08, "DEL": 0x2E, "DELETE": 0x2E, "CAPS": 0x14,
+    "UP": 0x26, "DOWN": 0x28, "LEFT": 0x25, "RIGHT": 0x27,
+    "F1": 0x70, "F2": 0x71, "F3": 0x72, "F4": 0x73, "F5": 0x74, "F6": 0x75,
+    "F7": 0x76, "F8": 0x77, "F9": 0x78, "F10": 0x79, "F11": 0x7A, "F12": 0x7B,
+}
+_VK_PUNCT = {";": 0xBA, "=": 0xBB, ",": 0xBC, "-": 0xBD, ".": 0xBE, "/": 0xBF,
+             "`": 0xC0, "[": 0xDB, "\\": 0xDC, "]": 0xDD, "'": 0xDE}
+
+
+def _vk(name: str) -> int:
+    if not name:
+        return 0
+    up = name.upper()
+    if up in _VK:
+        return _VK[up]
+    if len(name) == 1:
+        c = up
+        if "A" <= c <= "Z" or "0" <= c <= "9":
+            return ord(c)
+        return _VK_PUNCT.get(name, 0)
+    return 0
+
+
+def _send_key(vk: int, key_up: bool) -> None:
+    if vk == 0:
+        return
+    inp            = _INPUT(type=1)   # INPUT_KEYBOARD = 1
+    inp.ki.wVk     = vk
+    inp.ki.dwFlags = _KEYUP if key_up else 0
+    ctypes.windll.user32.SendInput(1, ctypes.byref(inp), ctypes.sizeof(_INPUT))
+
+
+def key_down(name: str) -> None:
+    vk = _vk(name)
+    if vk:
+        _keys_down.add(name.upper())
+        _send_key(vk, False)
+
+def key_up(name: str) -> None:
+    vk = _vk(name)
+    if vk:
+        _keys_down.discard(name.upper())
+        _send_key(vk, True)
+
+
+def release_all_inputs() -> None:
+    """Release every held key + mouse button. Called on reset/disconnect."""
+    for k in list(_keys_down):
+        _send_key(_vk(k), True)
+    _keys_down.clear()
+    for b in list(_mouse_held):
+        _send(_LUP if b == "left" else _RUP)
+    _mouse_held.clear()

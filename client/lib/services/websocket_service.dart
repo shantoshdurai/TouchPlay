@@ -55,6 +55,12 @@ class WebSocketService with WidgetsBindingObserver {
   String? _manualIp;
   String? get currentIp => _discoveredIp ?? _manualIp;
 
+  // Diagnostics (surfaced in the "Can't connect?" dialog)
+  String? get discoveredIp => _discoveredIp;
+  List<String> get candidateIps => _candidates();
+  String? _serverVersion;
+  String? get serverVersion => _serverVersion;
+
   // Sensitivity
   final sensitivity = SensitivitySettings();
 
@@ -92,6 +98,9 @@ class WebSocketService with WidgetsBindingObserver {
         // Send a ping immediately to verify connection is still alive
         _sendPing();
       }
+    } else {
+      // Backgrounded / inactive — release everything so nothing stays held down.
+      if (_state == ConnectionState.connected) send({'type': 'reset'});
     }
   }
 
@@ -131,6 +140,12 @@ class WebSocketService with WidgetsBindingObserver {
     _manualIp = ip.trim();
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('manual_ip', _manualIp!);
+    _disconnect();
+    _tryConnect(silent: false);
+  }
+
+  /// Force a fresh discovery + connection attempt (the "Rescan" button).
+  void reconnect() {
     _disconnect();
     _tryConnect(silent: false);
   }
@@ -225,6 +240,8 @@ class WebSocketService with WidgetsBindingObserver {
           _latencyMs = DateTime.now().difference(_pingSentAt!).inMilliseconds;
           _latencyCtrl.add(_latencyMs!);
         }
+      } else if (data['type'] == 'server_info') {
+        _serverVersion = data['version'] as String?;
       }
     } catch (_) {}
   }
