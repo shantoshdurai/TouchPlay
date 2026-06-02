@@ -394,13 +394,14 @@ class _ControllerScreenState extends State<ControllerScreen> {
         ]),
       ),
 
-      // Manual cluster (upper-left): CLUTCH=LB, SHIFT↑=B
+      // Menu cluster (upper-left): A = select/confirm, B = back/close — so you can
+      // answer in-game prompts (e.g. rewind "confirm?") without switching layouts.
       Positioned(
         top: h * 0.15, left: w * 0.04,
         child: Row(children: [
-          RaceButton(button: 'LB', label: 'CLUTCH', icon: Icons.compress, size: small),
+          RaceButton(button: 'A', label: 'SELECT', icon: Icons.check, size: small),
           SizedBox(width: w * 0.015),
-          RaceButton(button: 'B', label: 'SHIFT', icon: Icons.keyboard_double_arrow_up, size: small),
+          RaceButton(button: 'B', label: 'BACK', icon: Icons.close, size: small),
         ]),
       ),
 

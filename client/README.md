@@ -27,8 +27,9 @@ Tap the **Games** chip in the top bar to switch the on-screen layout. Every
 layout speaks the same Xbox-gamepad protocol, so the server never changes.
 
 - **Standard Gamepad** — the full dual-stick Xbox controller.
-- **Forza Horizon** — a mobile racing HUD: steering (wheel **or** L/R pads,
-  switchable in Settings), hold-to-floor pedals, and a drift handbrake.
+- **Forza Horizon** — a mobile racing HUD: **4 steering modes** (wheel, slider,
+  tilt, or L/R pads — switchable in Settings), hold-to-floor pedals, a drift
+  handbrake, and on-screen SELECT/BACK buttons for in-game prompts.
 
 The selected layout and your steering choice are remembered between launches.
 More games are stubbed as "coming soon" cards and slot into
@@ -54,15 +55,15 @@ The server gained keyboard + hold-able-mouse injection (`server/gamepad.py`).
 
 | Touch control | Sends | Forza action     |
 |---------------|-------|------------------|
-| Steering wheel / pads | Left stick | Steer    |
+| Steering (wheel/slider/tilt/pads) | Left stick | Steer |
 | GAS (hold)    | RT    | Accelerate       |
 | BRAKE (hold)  | LT    | Brake / reverse  |
 | HBRAKE        | A     | E-brake (drift)  |
 | CAM           | RB    | Switch camera    |
 | REWIND        | Y     | Rewind           |
 | HORN          | RS    | Horn             |
-| CLUTCH        | LB    | Clutch (manual)  |
-| SHIFT ↑       | B     | Upshift (manual) |
+| SELECT        | A     | Confirm in-game prompts (e.g. rewind) |
+| BACK          | B     | Cancel / back |
 | MAP           | BACK  | Open map         |
 | ANNA          | D-Pad ↓ | Assistant      |
 | PHOTO         | D-Pad ↑ | Photo mode     |
