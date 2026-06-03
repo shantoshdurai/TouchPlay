@@ -3,7 +3,13 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// The kinds of control a user can drop onto a custom layout.
-enum ControlKind { button, stick, trigger, dpad, mousepad, wheel, pedal }
+/// The `steer*` kinds are the alternate Forza steering styles, now editable just
+/// like the wheel: a drag slider, a phone-tilt indicator, and tap L/R pads.
+enum ControlKind {
+  button, stick, trigger, dpad, mousepad, wheel, pedal,
+  steerSlider, steerTilt, steerPad,
+  swing, // Spider-Man: hold = RT web-swing, drag down + release = Space boost
+}
 
 /// One placed control. Position is stored as a fraction of the screen so a
 /// layout looks the same on any device/resolution.
@@ -50,21 +56,36 @@ class ControlItem {
 }
 
 class CustomLayout {
-  CustomLayout({required this.id, required this.name, required this.items});
+  CustomLayout({
+    required this.id,
+    required this.name,
+    required this.items,
+    this.floatingSticks = false,
+  });
 
   String id;
   String name;
   List<ControlItem> items;
 
-  CustomLayout copy() =>
-      CustomLayout(id: id, name: name, items: items.map((e) => e.copy()).toList());
+  /// When true, the left/right screen halves are the Standard "Xbox" floating
+  /// sticks — fixed, full-half analog sticks that are NOT placed/editable items.
+  /// Play mode renders them automatically; the editor shows them as locked hints
+  /// (you can't move, resize, or delete them).
+  bool floatingSticks;
 
-  Map<String, dynamic> toJson() =>
-      {'id': id, 'name': name, 'items': items.map((e) => e.toJson()).toList()};
+  CustomLayout copy() => CustomLayout(
+      id: id, name: name, floatingSticks: floatingSticks,
+      items: items.map((e) => e.copy()).toList());
+
+  Map<String, dynamic> toJson() => {
+        'id': id, 'name': name, 'floatingSticks': floatingSticks,
+        'items': items.map((e) => e.toJson()).toList(),
+      };
 
   factory CustomLayout.fromJson(Map<String, dynamic> j) => CustomLayout(
         id: j['id'] as String,
         name: j['name'] as String,
+        floatingSticks: (j['floatingSticks'] ?? false) as bool,
         items: (j['items'] as List)
             .map((e) => ControlItem.fromJson(e as Map<String, dynamic>))
             .toList(),
@@ -95,6 +116,11 @@ String actionLabel(String action) {
   if (action == 'trig:left') return 'LT';
   if (action == 'trig:right') return 'RT';
   if (action == 'wheel') return 'WHEEL';
+  if (action == 'steer:slider') return 'SLIDER';
+  if (action == 'steer:tilt') return 'TILT';
+  if (action == 'steerpad:left') return 'STEER ◄';
+  if (action == 'steerpad:right') return 'STEER ►';
+  if (action == 'swing') return 'SWING';
   if (action == 'pedal:gas') return 'GAS';
   if (action == 'pedal:brake') return 'BRAKE';
   return action;
@@ -109,6 +135,10 @@ IconData kindIcon(ControlKind k) {
     case ControlKind.mousepad: return Icons.mouse;
     case ControlKind.wheel: return Icons.trip_origin;
     case ControlKind.pedal: return Icons.local_gas_station;
+    case ControlKind.steerSlider: return Icons.tune;
+    case ControlKind.steerTilt: return Icons.screen_rotation;
+    case ControlKind.steerPad: return Icons.swap_horiz;
+    case ControlKind.swing: return Icons.filter_tilt_shift;
   }
 }
 
@@ -121,6 +151,10 @@ String kindName(ControlKind k) {
     case ControlKind.mousepad: return 'Mouse pad';
     case ControlKind.wheel: return 'Steering wheel';
     case ControlKind.pedal: return 'Pedal';
+    case ControlKind.steerSlider: return 'Steering slider';
+    case ControlKind.steerTilt: return 'Steering tilt';
+    case ControlKind.steerPad: return 'Steer pad';
+    case ControlKind.swing: return 'Swing';
   }
 }
 
@@ -133,6 +167,10 @@ double defaultSize(ControlKind k) {
     case ControlKind.mousepad: return 240;
     case ControlKind.wheel: return 230;
     case ControlKind.pedal: return 110;
+    case ControlKind.steerSlider: return 300;
+    case ControlKind.steerTilt: return 240;
+    case ControlKind.steerPad: return 96;
+    case ControlKind.swing: return 92;
   }
 }
 
@@ -148,6 +186,10 @@ ControlItem newControl(ControlKind kind, {String action = ''}) => ControlItem(
           ? action
           : kind == ControlKind.button ? 'gp:A'
           : kind == ControlKind.wheel ? 'wheel'
+          : kind == ControlKind.steerSlider ? 'steer:slider'
+          : kind == ControlKind.steerTilt ? 'steer:tilt'
+          : kind == ControlKind.steerPad ? 'steerpad:left'
+          : kind == ControlKind.swing ? 'swing'
           : kind == ControlKind.pedal ? 'pedal:gas'
           : '',
     );
@@ -166,8 +208,9 @@ CustomLayout newLayoutFromTemplate(String template) {
   }
 }
 
-ControlItem _b(ControlKind k, double x, double y, String action, double size) =>
-    ControlItem(id: _newId(), kind: k, x: x, y: y, size: size, action: action);
+ControlItem _b(ControlKind k, double x, double y, String action, double size,
+        [String label = '']) =>
+    ControlItem(id: _newId(), kind: k, x: x, y: y, size: size, action: action, label: label);
 
 List<ControlItem> _gamepadTemplate() => [
       _b(ControlKind.stick, 0.15, 0.70, 'stick:left', 150),
@@ -213,9 +256,10 @@ List<ControlItem> _kbmTemplate() => [
 CustomLayout cloneStandard() => CustomLayout(
       id: _newId(),
       name: 'My Standard',
+      // Left/right halves are the fixed Xbox sticks — not editable items, so they
+      // never show in the editor. Everything else below is fully customizable.
+      floatingSticks: true,
       items: [
-        _b(ControlKind.stick, 0.17, 0.70, 'stick:left', 150),
-        _b(ControlKind.stick, 0.83, 0.70, 'stick:right', 150),
         _b(ControlKind.dpad, 0.16, 0.42, '', 130),
         // ABXY diamond (right)
         _b(ControlKind.button, 0.86, 0.30, 'gp:Y', 62),
@@ -235,23 +279,70 @@ CustomLayout cloneStandard() => CustomLayout(
       ],
     );
 
-/// Editable copy of the **Forza** layout, using the new wheel + pedal controls.
-CustomLayout cloneForza() => CustomLayout(
+/// Editable copy of the **Forza** layout. [steer] picks which steering control
+/// is dropped in — 'wheel' | 'slider' | 'tilt' | 'pads' — so the editor opens
+/// with the steering style you actually use, all movable / resizable.
+CustomLayout cloneForza([String steer = 'wheel']) {
+  // The steering control(s) for the chosen style — placed bottom-left.
+  final steering = <ControlItem>[
+    if (steer == 'slider')
+      _b(ControlKind.steerSlider, 0.24, 0.84, 'steer:slider', 300)
+    else if (steer == 'tilt')
+      _b(ControlKind.steerTilt, 0.17, 0.80, 'steer:tilt', 240)
+    else if (steer == 'pads') ...[
+      _b(ControlKind.steerPad, 0.09, 0.80, 'steerpad:left', 96),
+      _b(ControlKind.steerPad, 0.23, 0.80, 'steerpad:right', 96),
+    ]
+    else
+      _b(ControlKind.wheel, 0.17, 0.66, 'wheel', 230),
+  ];
+
+  const labels = {'wheel': 'Wheel', 'slider': 'Slider', 'tilt': 'Tilt', 'pads': 'Pads'};
+  return CustomLayout(
+    id: _newId(),
+    name: 'My Forza · ${labels[steer] ?? 'Wheel'}',
+    items: [
+      ...steering,
+      _b(ControlKind.pedal, 0.93, 0.60, 'pedal:gas', 112),
+      _b(ControlKind.pedal, 0.80, 0.62, 'pedal:brake', 100),
+      _b(ControlKind.button, 0.66, 0.76, 'gp:A', 80),        // handbrake
+      _b(ControlKind.button, 0.40, 0.24, 'gp:RB', 58),       // camera
+      _b(ControlKind.button, 0.49, 0.24, 'gp:Y', 58),        // rewind
+      _b(ControlKind.button, 0.58, 0.24, 'gp:RS', 58),       // horn
+      _b(ControlKind.button, 0.06, 0.24, 'gp:LB', 56),       // clutch
+      _b(ControlKind.button, 0.13, 0.24, 'gp:B', 56),        // shift up
+      _b(ControlKind.button, 0.42, 0.12, 'gp:BACK', 44),     // map
+      _b(ControlKind.button, 0.50, 0.12, 'gp:START', 44),    // pause
+      _b(ControlKind.button, 0.58, 0.12, 'gp:DPAD_DOWN', 44),// anna
+    ],
+  );
+}
+
+/// Editable **Marvel's Spider-Man 2** layout. Left/right halves are the fixed
+/// move / camera sticks; the SWING control sits on the right (hold = web-swing,
+/// drag down + release = Space boost). Buttons carry clear labels and can be
+/// rebound to any gamepad button or keyboard key in the editor.
+CustomLayout cloneSpiderman() => CustomLayout(
       id: _newId(),
-      name: 'My Forza',
+      name: 'My Spider-Man 2',
+      floatingSticks: true, // left half = MOVE, right half = CAMERA (fixed)
       items: [
-        _b(ControlKind.wheel, 0.17, 0.66, 'wheel', 230),
-        _b(ControlKind.pedal, 0.93, 0.60, 'pedal:gas', 112),
-        _b(ControlKind.pedal, 0.80, 0.62, 'pedal:brake', 100),
-        _b(ControlKind.button, 0.66, 0.76, 'gp:A', 80),        // handbrake
-        _b(ControlKind.button, 0.40, 0.24, 'gp:RB', 58),       // camera
-        _b(ControlKind.button, 0.49, 0.24, 'gp:Y', 58),        // rewind
-        _b(ControlKind.button, 0.58, 0.24, 'gp:RS', 58),       // horn
-        _b(ControlKind.button, 0.06, 0.24, 'gp:LB', 56),       // clutch
-        _b(ControlKind.button, 0.13, 0.24, 'gp:B', 56),        // shift up
-        _b(ControlKind.button, 0.42, 0.12, 'gp:BACK', 44),     // map
-        _b(ControlKind.button, 0.50, 0.12, 'gp:START', 44),    // pause
-        _b(ControlKind.button, 0.58, 0.12, 'gp:DPAD_DOWN', 44),// anna
+        // SWING — hero control on the right, where the thumb rests.
+        _b(ControlKind.swing, 0.66, 0.52, 'swing', 92),
+        // Combat cluster (bottom-right).
+        _b(ControlKind.button, 0.85, 0.64, 'gp:X', 60, 'ATTACK'),
+        _b(ControlKind.button, 0.95, 0.64, 'gp:B', 60, 'DODGE'),
+        _b(ControlKind.button, 0.90, 0.84, 'gp:A', 60, 'JUMP'),
+        // Traversal extras — keyboard keys you can rebind to your SM2 setup.
+        _b(ControlKind.button, 0.55, 0.86, 'key:C', 58, 'ZIP'),       // zip to point
+        _b(ControlKind.button, 0.80, 0.30, 'key:F', 58, 'WINGS'),// web wings / glide
+        // Web-shooter + gadget + focus (left side, near the move thumb).
+        _b(ControlKind.button, 0.06, 0.30, 'gp:RB', 56, 'WEB'),
+        _b(ControlKind.button, 0.14, 0.30, 'gp:Y', 56, 'GADGET'),
+        _b(ControlKind.button, 0.06, 0.52, 'gp:LB', 56, 'FOCUS'),
+        // Utility (top-center).
+        _b(ControlKind.button, 0.45, 0.12, 'gp:BACK', 44, 'MAP'),
+        _b(ControlKind.button, 0.55, 0.12, 'gp:START', 44, 'PAUSE'),
       ],
     );
 

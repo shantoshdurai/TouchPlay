@@ -496,7 +496,8 @@ class _SliderPainter extends CustomPainter {
 /// tilt mode. Shows a level bar + a Recenter button. If the axis/sign ever feels
 /// wrong on a given phone, flip [_axis]/[_sign] — that's the only tuning knob.
 class SteeringTilt extends StatefulWidget {
-  const SteeringTilt({super.key});
+  const SteeringTilt({super.key, this.width = 240});
+  final double width; // level-bar width (resizable when placed in a custom layout)
   @override
   State<SteeringTilt> createState() => _SteeringTiltState();
 }
@@ -542,7 +543,7 @@ class _SteeringTiltState extends State<SteeringTilt> {
   @override
   Widget build(BuildContext context) => Column(mainAxisSize: MainAxisSize.min, children: [
         SizedBox(
-          width: 240, height: 30,
+          width: widget.width, height: 30,
           child: CustomPaint(painter: _TiltLevel(_value)),
         ),
         const SizedBox(height: 12),

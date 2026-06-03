@@ -22,6 +22,10 @@ class SensitivitySettings {
   double mouseSensitivity;
   bool   vibration;
   double joyRadius;
+  // Per-control size factors for the Forza racing HUD (1.0 = default size).
+  double gasSize;
+  double brakeSize;
+  double handbrakeSize;
 
   SensitivitySettings({
     this.stickSensitivity      = 1.0,
@@ -30,6 +34,9 @@ class SensitivitySettings {
     this.mouseSensitivity      = 18.0,
     this.vibration             = true,
     this.joyRadius             = 1.0,   // scale factor: 1.0 = same size as left stick
+    this.gasSize               = 1.0,
+    this.brakeSize             = 1.0,
+    this.handbrakeSize         = 1.0,
   });
 }
 

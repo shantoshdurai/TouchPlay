@@ -6,6 +6,7 @@ import '../services/websocket_service.dart';
 import 'trigger_button.dart';
 import 'action_button.dart';
 import 'forza_controls.dart';
+import 'spiderman_controls.dart';
 
 const _kAccent  = Color(0xFF00D4FF);
 const _kRest    = Color(0x66FFFFFF);
@@ -17,9 +18,12 @@ bool get _vib => WebSocketService.instance.sensitivity.vibration;
 /// Footprint of a control (most are square; mouse pad is wide, pedal is tall).
 Size controlFootprint(ControlItem i) {
   switch (i.kind) {
-    case ControlKind.mousepad: return Size(i.size, i.size * 0.66);
-    case ControlKind.pedal:    return Size(i.size, i.size * 1.4);
-    default:                   return Size(i.size, i.size);
+    case ControlKind.mousepad:    return Size(i.size, i.size * 0.66);
+    case ControlKind.pedal:       return Size(i.size, i.size * 1.4);
+    case ControlKind.steerSlider: return Size(i.size, i.size * 0.34);
+    case ControlKind.steerTilt:   return Size(i.size, i.size * 0.42);
+    case ControlKind.swing:       return Size(i.size, i.size * 2.8);
+    default:                      return Size(i.size, i.size);
   }
 }
 
@@ -51,6 +55,14 @@ Widget _rawControl(ControlItem item) {
       return _CustomMousePad(item: item);
     case ControlKind.wheel:
       return _CustomWheel(item: item);
+    case ControlKind.steerSlider:
+      return SteeringSlider(width: item.size);
+    case ControlKind.steerTilt:
+      return SteeringTilt(width: item.size);
+    case ControlKind.steerPad:
+      return SteeringPad(left: item.action != 'steerpad:right', size: item.size);
+    case ControlKind.swing:
+      return SwingButton(width: item.size, height: item.size * 2.8);
     case ControlKind.pedal:
       final gas = item.action == 'pedal:gas';
       return RacePedal(

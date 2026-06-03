@@ -70,6 +70,10 @@ class _LayoutEditorScreenState extends State<LayoutEditorScreen> {
           behavior: HitTestBehavior.opaque,
           onTap: () => setState(() => _selId = null))),
 
+        // Standard "Xbox" sticks are fixed — shown as faint locked hints, never
+        // as editable controls (you customize everything around them).
+        if (_layout.floatingSticks) ..._fixedStickHints(w, h),
+
         for (final item in _layout.items) _editable(item, w, h),
 
         if (_layout.items.isEmpty)
@@ -117,6 +121,39 @@ class _LayoutEditorScreenState extends State<LayoutEditorScreen> {
         ]),
       ),
     );
+  }
+
+  // ── Fixed floating-stick hints (Standard layout) ─────────────────────────────
+  // Non-interactive, faded markers on each half so the user knows the left/right
+  // sticks are there and fixed — they can't be selected, moved, resized or deleted.
+  List<Widget> _fixedStickHints(double w, double h) {
+    Widget hint(bool left) => Positioned(
+      left: left ? 0 : null,
+      right: left ? null : 0,
+      width: w * 0.5,
+      top: h * 0.46, bottom: h * 0.06,
+      child: IgnorePointer(
+        child: Opacity(
+          opacity: 0.16,
+          child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+            Container(
+              width: 84, height: 84,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                border: Border.all(color: Colors.white, width: 1.5),
+              ),
+              child: const Icon(Icons.lock_outline, color: Colors.white, size: 20),
+            ),
+            const SizedBox(height: 6),
+            Text(left ? 'LEFT STICK · FIXED' : 'RIGHT STICK · FIXED',
+              style: const TextStyle(color: Colors.white, fontSize: 9,
+                fontWeight: FontWeight.bold, letterSpacing: 1.2)),
+          ]),
+        ),
+      ),
+    );
+    return [hint(true), hint(false)];
   }
 
   // ── Top bar ──────────────────────────────────────────────────────────────────
@@ -199,7 +236,9 @@ class _LayoutEditorScreenState extends State<LayoutEditorScreen> {
   // ── Inspector for the selected control ───────────────────────────────────────
   Widget _inspector(ControlItem item) {
     final isButton = item.kind == ControlKind.button;
-    final isSided  = item.kind == ControlKind.stick || item.kind == ControlKind.trigger;
+    final isSided  = item.kind == ControlKind.stick ||
+                     item.kind == ControlKind.trigger ||
+                     item.kind == ControlKind.steerPad;
     final isPedal  = item.kind == ControlKind.pedal;
     return Positioned(
       left: 0, right: 0, bottom: 0,
@@ -304,7 +343,9 @@ class _LayoutEditorScreenState extends State<LayoutEditorScreen> {
   }
 
   Widget _sideToggle(ControlItem item) {
-    final prefix = item.kind == ControlKind.stick ? 'stick' : 'trig';
+    final prefix = item.kind == ControlKind.stick ? 'stick'
+                 : item.kind == ControlKind.steerPad ? 'steerpad'
+                 : 'trig';
     final left = item.action == '$prefix:left';
     Widget seg(String label, bool isLeft, bool active) => GestureDetector(
       onTap: () => setState(() => item.action = '$prefix:${isLeft ? 'left' : 'right'}'),
@@ -376,6 +417,16 @@ class _LayoutEditorScreenState extends State<LayoutEditorScreen> {
             () => _addKind(ControlKind.mousepad)),
         _addTile(Icons.trip_origin, 'Steering wheel', 'Drag to steer (racing)',
             () => _addKind(ControlKind.wheel)),
+        _addTile(Icons.tune, 'Steering slider', 'Slide a knob — hands stay put',
+            () => _addKind(ControlKind.steerSlider, action: 'steer:slider')),
+        _addTile(Icons.screen_rotation, 'Steering tilt', 'Tilt the phone to steer',
+            () => _addKind(ControlKind.steerTilt, action: 'steer:tilt')),
+        _addTile(Icons.chevron_left, 'Steer pad — left', 'Hold = full left lock',
+            () => _addKind(ControlKind.steerPad, action: 'steerpad:left')),
+        _addTile(Icons.chevron_right, 'Steer pad — right', 'Hold = full right lock',
+            () => _addKind(ControlKind.steerPad, action: 'steerpad:right')),
+        _addTile(Icons.filter_tilt_shift, 'Swing (Spider-Man)', 'Hold = swing · drag down = boost',
+            () => _addKind(ControlKind.swing, action: 'swing')),
         _addTile(Icons.local_gas_station, 'Gas pedal', 'Hold = full throttle (RT)',
             () => _addKind(ControlKind.pedal, action: 'pedal:gas')),
         _addTile(Icons.front_hand, 'Brake pedal', 'Hold = full brake (LT)',

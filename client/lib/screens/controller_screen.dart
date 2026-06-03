@@ -28,6 +28,7 @@ class _ControllerScreenState extends State<ControllerScreen> {
   bool _showGames        = false;   // full grid picker (soon games, new, edit)
   bool _showGamesMenu    = false;   // quick-switch dropdown from the pill
   bool _showSteerChooser = false;
+  bool _showForzaEditChooser = false; // "edit which steering?" before the editor
   String _profileId  = 'standard';   // 'standard' | 'forza' | 'custom:<id>'
   String _forzaSteer = 'wheel';      // 'wheel' | 'pads'
   List<CustomLayout> _customLayouts = [];
@@ -119,11 +120,15 @@ class _ControllerScreenState extends State<ControllerScreen> {
       }));
 
   // "Customize" a built-in preset → open an editable copy in the editor.
+  // Forza first asks which steering style to edit (wheel / slider / tilt / pads),
+  // then opens the editor with that steering control + pedals + buttons.
   Future<void> _customizePreset(String id) async {
     if (id == 'standard') {
       await _openEditor(cloneStandard());
     } else if (id == 'forza') {
-      await _openEditor(cloneForza());
+      setState(() { _showGames = false; _showForzaEditChooser = true; });
+    } else if (id == 'spiderman') {
+      await _openEditor(cloneSpiderman());
     }
   }
 
@@ -158,9 +163,10 @@ class _ControllerScreenState extends State<ControllerScreen> {
     final size = MediaQuery.of(context).size;
     final h = size.height;
     final w = size.width;
-    final isForza = _profileId == 'forza';
-    final custom  = _activeCustom;
-    final disp    = profileById(_profileId);
+    final isForza  = _profileId == 'forza';
+    final isSpider = _profileId == 'spiderman';
+    final custom   = _activeCustom;
+    final disp     = profileById(_profileId);
 
     return Scaffold(
       backgroundColor: const Color(0xFF080810),
@@ -172,9 +178,11 @@ class _ControllerScreenState extends State<ControllerScreen> {
           // 2. Active game layout
           ...(custom != null
               ? _customChildren(custom, w, h)
-              : isForza
-                  ? _forzaChildren(w, h)
-                  : _standardChildren(w, h)),
+              : isSpider
+                  ? _spidermanChildren(w, h)
+                  : isForza
+                      ? _forzaChildren(w, h)
+                      : _standardChildren(w, h)),
 
           // 3. Connection chip (top-left)
           Positioned(
@@ -223,6 +231,15 @@ class _ControllerScreenState extends State<ControllerScreen> {
               onPick: (id) { setState(() => _showGamesMenu = false); _selectProfile(id); },
               onNew: () { setState(() => _showGamesMenu = false); _newLayout(); },
               onMore: () => setState(() { _showGamesMenu = false; _showGames = true; }),
+              onEditCurrent: () {
+                setState(() => _showGamesMenu = false);
+                if (_profileId == 'standard' || _profileId == 'forza' || _profileId == 'spiderman') {
+                  _customizePreset(_profileId);
+                } else {
+                  final c = _activeCustom;
+                  if (c != null) _openEditor(c);
+                }
+              },
               onClose: () => setState(() => _showGamesMenu = false),
             ),
           if (_showGames)
@@ -240,6 +257,17 @@ class _ControllerScreenState extends State<ControllerScreen> {
             _TutorialOverlay(onDismiss: () => setState(() => _showTutorial = false)),
           if (_showSteerChooser)
             _SteerChooser(onPick: (m) => _setSteer(m, markSeen: true)),
+          if (_showForzaEditChooser)
+            _SteerChooser(
+              title: 'EDIT WHICH STEERING?',
+              subtitle: 'Pick the steering you use — the editor opens with it,\n'
+                  'plus the pedals & buttons, all movable & resizable.',
+              onPick: (style) {
+                setState(() => _showForzaEditChooser = false);
+                _openEditor(cloneForza(style));
+              },
+              onClose: () => setState(() => _showForzaEditChooser = false),
+            ),
         ],
       ),
     );
@@ -330,11 +358,20 @@ class _ControllerScreenState extends State<ControllerScreen> {
   //   GAS→RT  BRAKE→LT  HANDBRAKE→A  CAM→RB  REWIND→Y  HORN→RS
   //   CLUTCH→LB  SHIFT↑→B  MAP→BACK  ANNA→DPAD↓  PHOTO→DPAD↑  PAUSE→START
   List<Widget> _forzaChildren(double w, double h) {
-    final joyR   = WebSocketService.instance.sensitivity.joyRadius;
+    final s      = WebSocketService.instance.sensitivity;
+    final joyR   = s.joyRadius;
     final pedalW = (w * 0.12).clamp(70.0, 150.0);
     final small  = (h * 0.13).clamp(46.0, 78.0);
     final big    = (h * 0.18).clamp(64.0, 110.0);
     final mini   = small * 0.72;
+
+    // The four main racing controls are each resizable from Settings: steering
+    // uses joyRadius (above); gas / brake / handbrake use their own size factors.
+    final gasW   = pedalW * s.gasSize;
+    final brakeW = pedalW * s.brakeSize;
+    final gasH   = (h * 0.46 * s.gasSize).clamp(150.0, 360.0);
+    final brakeH = (h * 0.36 * s.brakeSize).clamp(120.0, 300.0);
+    final hbSize = (big * s.handbrakeSize).clamp(56.0, 150.0);
 
     return [
       // STEERING (bottom-left) — wheel / slider / tilt / L-R pads
@@ -368,18 +405,18 @@ class _ControllerScreenState extends State<ControllerScreen> {
       Positioned(
         right: w * 0.035, bottom: h * 0.07,
         child: RacePedal(gas: true, label: 'GAS', icon: Icons.local_gas_station,
-            width: pedalW, height: (h * 0.46).clamp(150.0, 340.0)),
+            width: gasW, height: gasH),
       ),
       Positioned(
-        right: w * 0.035 + pedalW + w * 0.02, bottom: h * 0.07,
+        right: w * 0.035 + gasW + w * 0.02, bottom: h * 0.07,
         child: RacePedal(gas: false, label: 'BRAKE', icon: Icons.front_hand,
-            width: pedalW, height: (h * 0.36).clamp(120.0, 280.0)),
+            width: brakeW, height: brakeH),
       ),
 
       // HANDBRAKE (drift) = A — just left of the pedals
       Positioned(
-        right: w * 0.075 + pedalW * 2, bottom: h * 0.13,
-        child: RaceButton(button: 'A', label: 'HBRAKE', icon: Icons.local_parking, size: big),
+        right: w * 0.06 + gasW + brakeW, bottom: h * 0.13,
+        child: RaceButton(button: 'A', label: 'HBRAKE', icon: Icons.local_parking, size: hbSize),
       ),
 
       // Secondary cluster (upper-right): CAM=RB, REWIND=Y, HORN=RS
@@ -421,6 +458,14 @@ class _ControllerScreenState extends State<ControllerScreen> {
     ];
   }
 
+  // ── MARVEL'S SPIDER-MAN 2 layout ─────────────────────────────────────────────
+  // Rendered from the SAME editable definition you get when you tap Customize, so
+  // the default and the editor always match. Left half = MOVE, right half =
+  // CAMERA (fixed sticks); SWING on the right; every button is rebindable.
+  CustomLayout? _spidermanLayout;
+  List<Widget> _spidermanChildren(double w, double h) =>
+      _customChildren(_spidermanLayout ??= cloneSpiderman(), w, h);
+
   // ── CUSTOM layout (play mode) ────────────────────────────────────────────────
   List<Widget> _customChildren(CustomLayout layout, double w, double h) {
     if (layout.items.isEmpty) {
@@ -439,6 +484,22 @@ class _ControllerScreenState extends State<ControllerScreen> {
       ];
     }
     return [
+      // Standard "Xbox" fixed sticks — full-half floating sticks drawn under the
+      // editable controls (so buttons on top still capture their own touches).
+      if (layout.floatingSticks) ...[
+        Positioned(
+          left: w * 0.5, top: 0, bottom: 0,
+          child: Container(width: 1, color: Colors.white.withOpacity(0.07)),
+        ),
+        Positioned(
+          left: 0, top: 28, bottom: 0, width: w * 0.5,
+          child: _FloatingStick(side: 'left', screenH: h),
+        ),
+        Positioned(
+          right: 0, top: 28, bottom: 0, width: w * 0.5,
+          child: _FloatingStick(side: 'right', screenH: h),
+        ),
+      ],
       for (final item in layout.items) _positionedCustom(item, w, h),
     ];
   }
@@ -745,6 +806,9 @@ class _SettingsPanelState extends State<_SettingsPanel> {
   late double _mouse;
   late bool   _vibration;
   late double _joyRadius;
+  late double _gasSize;
+  late double _brakeSize;
+  late double _hbSize;
 
   @override
   void initState() {
@@ -756,6 +820,9 @@ class _SettingsPanelState extends State<_SettingsPanel> {
     _mouse      = s.mouseSensitivity;
     _vibration  = s.vibration;
     _joyRadius  = s.joyRadius;
+    _gasSize    = s.gasSize;
+    _brakeSize  = s.brakeSize;
+    _hbSize     = s.handbrakeSize;
   }
 
   @override
@@ -841,14 +908,29 @@ class _SettingsPanelState extends State<_SettingsPanel> {
       setState(() => _dead = v);
       WebSocketService.instance.sensitivity.deadZone = v;
     }, fmt: (v) => '${(v * 100).round()}%'),
+    const SizedBox(height: 16),
+    // All four main controls are resizable — not just the steering.
+    _section('Control sizes'),
     _sliderRow(
-        widget.steerMode == 'wheel' ? 'Wheel size'
-        : widget.steerMode == 'slider' ? 'Slider width'
-        : widget.steerMode == 'tilt' ? 'Indicator size'
-        : 'Pad size',
+        widget.steerMode == 'wheel' ? 'Steering wheel'
+        : widget.steerMode == 'slider' ? 'Steering slider'
+        : widget.steerMode == 'tilt' ? 'Tilt indicator'
+        : 'Steering pads',
         _joyRadius, 0.5, 2.0, (v) {
       setState(() => _joyRadius = v);
       WebSocketService.instance.sensitivity.joyRadius = v;
+    }),
+    _sliderRow('Gas pedal', _gasSize, 0.6, 1.8, (v) {
+      setState(() => _gasSize = v);
+      WebSocketService.instance.sensitivity.gasSize = v;
+    }),
+    _sliderRow('Brake pedal', _brakeSize, 0.6, 1.8, (v) {
+      setState(() => _brakeSize = v);
+      WebSocketService.instance.sensitivity.brakeSize = v;
+    }),
+    _sliderRow('Handbrake', _hbSize, 0.6, 1.8, (v) {
+      setState(() => _hbSize = v);
+      WebSocketService.instance.sensitivity.handbrakeSize = v;
     }),
     const SizedBox(height: 16),
     _section('General'),
@@ -912,6 +994,9 @@ class _SettingsPanelState extends State<_SettingsPanel> {
     s.mouseSensitivity      = d.mouseSensitivity;
     s.vibration             = d.vibration;
     s.joyRadius             = d.joyRadius;
+    s.gasSize               = d.gasSize;
+    s.brakeSize             = d.brakeSize;
+    s.handbrakeSize         = d.handbrakeSize;
     setState(() {
       _leftStick  = d.stickSensitivity;
       _rightStick = d.rightStickSensitivity;
@@ -919,6 +1004,9 @@ class _SettingsPanelState extends State<_SettingsPanel> {
       _mouse      = d.mouseSensitivity;
       _vibration  = d.vibration;
       _joyRadius  = d.joyRadius;
+      _gasSize    = d.gasSize;
+      _brakeSize  = d.brakeSize;
+      _hbSize     = d.handbrakeSize;
     });
   }
 
@@ -1335,7 +1423,7 @@ class _GamePicker extends StatelessWidget {
                         for (final p in kGameProfiles.where((p) => !p.comingSoon))
                           _GameCard(profile: p, selected: p.id == currentId,
                             onTap: () => onPick(p.id),
-                            onCustomize: (p.id == 'standard' || p.id == 'forza')
+                            onCustomize: (p.id == 'standard' || p.id == 'forza' || p.id == 'spiderman')
                                 ? () => onCustomize(p.id) : null),
                         for (final l in customLayouts)
                           _CustomCard(
@@ -1581,16 +1669,18 @@ class _GamesDropdown extends StatelessWidget {
     required this.onPick,
     required this.onNew,
     required this.onMore,
+    required this.onEditCurrent,
     required this.onClose,
   });
   final String currentId;
   final List<CustomLayout> customLayouts;
   final ValueChanged<String> onPick;
-  final VoidCallback onNew, onMore, onClose;
+  final VoidCallback onNew, onMore, onEditCurrent, onClose;
 
   @override
   Widget build(BuildContext context) {
     final top = MediaQuery.of(context).padding.top;
+    final sz  = MediaQuery.of(context).size;
     return Stack(children: [
       // tap-outside to dismiss
       Positioned.fill(child: GestureDetector(
@@ -1609,8 +1699,9 @@ class _GamesDropdown extends StatelessWidget {
           child: Material(
             color: Colors.transparent,
             child: Container(
-              width: 250,
-              constraints: BoxConstraints(maxHeight: MediaQuery.of(context).size.height * 0.82),
+              width: 196,
+              // Always fit the visible (landscape) screen — never run off-screen.
+              constraints: BoxConstraints(maxHeight: (sz.height - top - 54).clamp(140.0, sz.height)),
               decoration: BoxDecoration(
                 color: const Color(0xFF0D0D14),
                 borderRadius: BorderRadius.circular(14),
@@ -1620,7 +1711,7 @@ class _GamesDropdown extends StatelessWidget {
               ),
               child: Column(mainAxisSize: MainAxisSize.min, children: [
                 const Padding(
-                  padding: EdgeInsets.fromLTRB(14, 12, 14, 4),
+                  padding: EdgeInsets.fromLTRB(12, 9, 12, 3),
                   child: Align(alignment: Alignment.centerLeft,
                     child: Text('SWITCH LAYOUT', style: TextStyle(
                       color: Colors.white38, fontSize: 9,
@@ -1636,9 +1727,16 @@ class _GamesDropdown extends StatelessWidget {
                   ]),
                 )),
                 const Divider(height: 1, color: Color(0xFF20202C)),
+                // One-tap edit of whatever's active — no more digging into "All layouts".
+                if (currentId == 'standard' || currentId == 'forza' ||
+                    currentId == 'spiderman' || currentId.startsWith('custom:'))
+                  _row(
+                    currentId.startsWith('custom:') ? Icons.edit_outlined : Icons.tune,
+                    currentId.startsWith('custom:') ? 'Edit this layout' : 'Customize this layout',
+                    false, onEditCurrent, accentIcon: true),
                 _row(Icons.add_circle_outline, 'New layout', false, onNew, accentIcon: true),
                 _row(Icons.grid_view_rounded, 'All layouts & more', false, onMore, accentIcon: true),
-                const SizedBox(height: 6),
+                const SizedBox(height: 4),
               ]),
             ),
           ),
@@ -1654,15 +1752,15 @@ class _GamesDropdown extends StatelessWidget {
       onTap: onTap,
       child: Container(
         color: active ? const Color(0x1400D4FF) : Colors.transparent,
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
         child: Row(children: [
-          Icon(icon, size: 17, color: active || accentIcon ? accent : Colors.white70),
-          const SizedBox(width: 12),
+          Icon(icon, size: 16, color: active || accentIcon ? accent : Colors.white70),
+          const SizedBox(width: 10),
           Expanded(child: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis,
             style: TextStyle(
-              color: active ? accent : Colors.white, fontSize: 13,
+              color: active ? accent : Colors.white, fontSize: 12,
               fontWeight: active ? FontWeight.w600 : FontWeight.normal))),
-          if (active) const Icon(Icons.check, size: 16, color: accent),
+          if (active) const Icon(Icons.check, size: 15, color: accent),
         ]),
       ),
     );
@@ -1672,19 +1770,30 @@ class _GamesDropdown extends StatelessWidget {
 // ── First-time steering chooser (Forza) ───────────────────────────────────────
 
 class _SteerChooser extends StatelessWidget {
-  const _SteerChooser({required this.onPick});
+  const _SteerChooser({
+    required this.onPick,
+    this.title = 'CHOOSE YOUR STEERING',
+    this.subtitle = 'How do you want to steer in Forza?\nYou can change this anytime in Settings.',
+    this.onClose,
+  });
   final ValueChanged<String> onPick;
+  final String title;
+  final String subtitle;
+  final VoidCallback? onClose; // tap-outside to dismiss (null = forced choice)
 
   @override
   Widget build(BuildContext context) {
     final w = MediaQuery.of(context).size.width;
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
-      onTap: () {},
+      onTap: onClose ?? () {},
       child: Container(
         color: Colors.black.withOpacity(0.85),
         child: Center(
-          child: Container(
+          // Absorb taps on the card so only taps on the backdrop dismiss.
+          child: GestureDetector(
+            onTap: () {},
+            child: Container(
             width: (w * 0.92).clamp(360.0, 760.0),
             padding: const EdgeInsets.all(24),
             decoration: BoxDecoration(
@@ -1693,14 +1802,14 @@ class _SteerChooser extends StatelessWidget {
               border: Border.all(color: const Color(0xFF20202C)),
             ),
             child: Column(mainAxisSize: MainAxisSize.min, children: [
-              const Text('CHOOSE YOUR STEERING', style: TextStyle(
+              Text(title, style: const TextStyle(
                 color: Color(0xFF00D4FF), fontSize: 12,
                 fontWeight: FontWeight.bold, letterSpacing: 2.5)),
               const SizedBox(height: 8),
-              const Text(
-                'How do you want to steer in Forza?\nYou can change this anytime in Settings.',
+              Text(
+                subtitle,
                 textAlign: TextAlign.center,
-                style: TextStyle(color: Colors.white54, fontSize: 12, height: 1.4)),
+                style: const TextStyle(color: Colors.white54, fontSize: 12, height: 1.4)),
               const SizedBox(height: 22),
               Wrap(
                 alignment: WrapAlignment.center,
@@ -1717,6 +1826,7 @@ class _SteerChooser extends StatelessWidget {
                 ],
               ),
             ]),
+            ),
           ),
         ),
       ),

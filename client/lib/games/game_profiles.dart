@@ -46,11 +46,19 @@ const kForzaProfile = GameProfile(
   icon: Icons.directions_car_filled,
 );
 
+const kSpidermanProfile = GameProfile(
+  id: 'spiderman',
+  name: "Marvel's Spider-Man 2",
+  tagline: 'Swing · launch · combat',
+  icon: Icons.filter_tilt_shift,
+);
+
 /// Every card shown in the picker, in order. Coming-soon cards advertise that
 /// more per-game layouts can be dropped in later.
 const kGameProfiles = <GameProfile>[
   kStandardProfile,
   kForzaProfile,
+  kSpidermanProfile,
   GameProfile(
     id: 'nfs',
     name: 'Need for Speed',
