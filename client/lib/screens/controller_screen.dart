@@ -148,12 +148,6 @@ class _ControllerScreenState extends State<ControllerScreen> {
     await prefs.setString('selected_profile', _profileId);
   }
 
-  void _selectProfile(String id) {
-    if (id == _profileId) return;
-    setState(() => _profileId = id);
-    _saveProfile();
-  }
-
   void _openEditCurrent() {
     if (_profileId == 'standard' || _profileId == 'forza' || _profileId == 'spiderman' || _profileId == 'overcooked') {
       _customizePreset(_profileId);
@@ -174,12 +168,15 @@ class _ControllerScreenState extends State<ControllerScreen> {
     _saveProfile();
   }
 
-  void _newLayout() async {showDialog(context: context, builder: (_) =>
+  void _newLayout() async {
+    showDialog(context: context, builder: (_) =>
       _TemplatePicker(onPick: (tpl) {
         Navigator.of(context).pop();
         _openEditor(newLayoutFromTemplate(tpl));
       }));
-  // "Customize" a built-in preset â†’ open an editable copy in the editor.
+  }
+
+  // "Customize" a built-in preset → open an editable copy in the editor.
   // Forza first asks which steering style to edit (wheel / slider / tilt / pads),
   // then opens the editor with that steering control + pedals + buttons.
   Future<void> _customizePreset(String id) async {
@@ -862,11 +859,13 @@ class _SettingsPanel extends StatefulWidget {
     required this.profileId,
     required this.steerMode,
     required this.onSteerMode,
+    required this.onEditCurrent,
   });
   final VoidCallback onClose;
   final String profileId;
   final String steerMode;
   final ValueChanged<String> onSteerMode;
+  final VoidCallback onEditCurrent;
   @override
   State<_SettingsPanel> createState() => _SettingsPanelState();
 }
@@ -1712,6 +1711,7 @@ class _GamesDropdown extends StatelessWidget {
     required this.onNew,
     required this.onMore,
     required this.onEditCurrent,
+    required this.onDeleteCurrent,
     required this.onClose,
   });
   final String currentId;
