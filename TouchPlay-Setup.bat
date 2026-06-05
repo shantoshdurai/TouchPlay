@@ -9,13 +9,15 @@ net session >nul 2>&1
 if errorlevel 1 (
     echo  [TouchPlay] Requesting administrator rights...
     powershell -Command "Start-Process cmd -ArgumentList '/c \"%~f0\"' -Verb RunAs -Wait"
+    if errorlevel 1 pause
     exit /b
 )
 
 chcp 65001 >nul 2>&1
 
 powershell -ExecutionPolicy Bypass -Command ^
-  "& { $f = '%~f0'; $raw = [IO.File]::ReadAllText($f); $ps = $raw.Substring($raw.LastIndexOf('#<PS>')+5); Invoke-Expression $ps }"
+  "try { $f = '%~f0'; $raw = [IO.File]::ReadAllText($f, [System.Text.Encoding]::UTF8); $ps = $raw.Substring($raw.LastIndexOf('#<PS>')+5); Invoke-Expression $ps } catch { Write-Host $_ -ForegroundColor Red; exit 1 }"
+if errorlevel 1 pause
 exit /b
 
 #<PS>
