@@ -1,11 +1,10 @@
 @echo off
 :: ============================================================================
-::  TouchPlay Setup  —  Fully automatic first-time installer
-::  Installs Python, pip packages, AND the ViGEm gamepad driver silently.
-::  Run this once on a new PC; everything is handled automatically.
+::  TouchPlay Setup  —  Run this once on a new PC
+::  Installs the ViGEm gamepad driver and creates a Desktop shortcut.
+::  No Python required — the server is a standalone .exe.
 :: ============================================================================
 
-:: ── Require admin (needed to install ViGEm driver + firewall rules) ──────────
 net session >nul 2>&1
 if errorlevel 1 (
     echo  [TouchPlay] Requesting administrator rights...
@@ -13,32 +12,18 @@ if errorlevel 1 (
     exit /b
 )
 
-:: ── Set UTF-8 console so box-drawing chars render correctly ──────────────────
 chcp 65001 >nul 2>&1
 
-:: ── Run the embedded PowerShell setup script ─────────────────────────────────
 powershell -ExecutionPolicy Bypass -Command ^
   "& { $f = '%~f0'; $raw = [IO.File]::ReadAllText($f); $ps = $raw.Substring($raw.LastIndexOf('#<PS>')+5); Invoke-Expression $ps }"
 exit /b
 
 #<PS>
-# =============================================================================
-#  TouchPlay Setup — PowerShell payload
-#  Everything below runs as Administrator.
-# =============================================================================
-
 $ErrorActionPreference = 'Stop'
-$ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-if (-not $ScriptDir) { $ScriptDir = Split-Path -Parent ([Environment]::GetCommandLineArgs()[0]) }
-
-# Fall back to the bat file's own directory
-$ScriptDir = (Get-Item $MyInvocation.PSCommandPath -ErrorAction SilentlyContinue)?.Directory?.FullName
-if (-not $ScriptDir) { $ScriptDir = $PSScriptRoot }
+$ScriptDir = Split-Path -Parent $MyInvocation.PSCommandPath
 if (-not $ScriptDir) { $ScriptDir = (Get-Location).Path }
+$ExePath = Join-Path $ScriptDir "TouchPlay-Server.exe"
 
-$ServerDir = Join-Path $ScriptDir "server"
-
-# ── Console helpers ───────────────────────────────────────────────────────────
 function Banner {
     Clear-Host
     Write-Host ""
@@ -47,236 +32,91 @@ function Banner {
     Write-Host "     ██║   ██║   ██║██║   ██║██║     ███████║" -ForegroundColor Cyan
     Write-Host "     ╚═╝   ╚██████╔╝╚██████╔╝╚██████╗██║  ██║" -ForegroundColor Cyan
     Write-Host "            ╚═════╝  ╚═════╝  ╚═════╝╚═╝  ╚═╝" -ForegroundColor Cyan
+    Write-Host "     ██████╗ ██╗      █████╗ ██╗   ██╗"        -ForegroundColor Cyan
+    Write-Host "     ██╔══██╗██║     ██╔══██╗╚██╗ ██╔╝"        -ForegroundColor Cyan
+    Write-Host "     ██████╔╝██║     ███████║ ╚████╔╝ "        -ForegroundColor Cyan
+    Write-Host "     ╚═╝     ███████╗██║  ██║   ██║  "         -ForegroundColor Cyan
+    Write-Host "             ╚══════╝╚═╝  ╚═╝   ╚═╝  "         -ForegroundColor Cyan
     Write-Host ""
-    Write-Host "     ██████╗ ██╗      █████╗ ██╗   ██╗" -ForegroundColor Cyan
-    Write-Host "     ██╔══██╗██║     ██╔══██╗╚██╗ ██╔╝" -ForegroundColor Cyan
-    Write-Host "     ██████╔╝██║     ███████║ ╚████╔╝" -ForegroundColor Cyan
-    Write-Host "     ██╔═══╝ ██║     ██╔══██║  ╚██╔╝" -ForegroundColor Cyan
-    Write-Host "     ╚═╝     ███████╗██║  ██║   ██║" -ForegroundColor Cyan
-    Write-Host "             ╚══════╝╚═╝  ╚═╝   ╚═╝" -ForegroundColor Cyan
-    Write-Host ""
-    Write-Host "  ─────────────────────────────────────────────" -ForegroundColor DarkGray
+    Write-Host "  ─────────────────────────────────────────" -ForegroundColor DarkGray
     Write-Host "   First-Time Setup  ·  This runs once only" -ForegroundColor DarkGray
-    Write-Host "  ─────────────────────────────────────────────" -ForegroundColor DarkGray
+    Write-Host "  ─────────────────────────────────────────" -ForegroundColor DarkGray
     Write-Host ""
 }
 
-function Step([string]$n, [string]$msg) {
-    Write-Host "  [$n] $msg" -ForegroundColor White
-}
-function OK([string]$msg) {
-    Write-Host "      ✓  $msg" -ForegroundColor Green
-}
-function Skip([string]$msg) {
-    Write-Host "      –  $msg (already installed)" -ForegroundColor DarkGray
-}
-function Warn([string]$msg) {
-    Write-Host "      ⚠  $msg" -ForegroundColor Yellow
-}
-function Fail([string]$msg) {
-    Write-Host ""
-    Write-Host "  ✗  ERROR: $msg" -ForegroundColor Red
-    Write-Host ""
-    Write-Host "  Press Enter to close..." -ForegroundColor DarkGray
-    [void][Console]::ReadLine()
-    exit 1
-}
-
-# ── Step tracker ──────────────────────────────────────────────────────────────
-$total = 5; $step = 0
-function NextStep([string]$label) {
-    $script:step++
-    Write-Host ""
-    Write-Host "  ┌─ Step $step/$total : $label" -ForegroundColor Cyan
+function OK($m)   { Write-Host "  ✓  $m" -ForegroundColor Green }
+function Skip($m) { Write-Host "  –  $m" -ForegroundColor DarkGray }
+function Warn($m) { Write-Host "  ⚠  $m" -ForegroundColor Yellow }
+function Fail($m) {
+    Write-Host "`n  ✗  $m" -ForegroundColor Red
+    Write-Host "`n  Press Enter to close..."; [void][Console]::ReadLine(); exit 1
 }
 
 Banner
 
-# =============================================================================
-# STEP 1 — Python
-# =============================================================================
-NextStep "Python 3.11+"
-
-$py = $null
-foreach ($cmd in @("python","python3","py")) {
-    try {
-        $v = & $cmd --version 2>&1
-        if ($v -match "Python 3\.(\d+)" -and [int]$Matches[1] -ge 9) {
-            $py = $cmd; break
-        }
-    } catch {}
+# Check exe exists
+if (-not (Test-Path $ExePath)) {
+    Fail "TouchPlay-Server.exe not found.`n  Make sure it's in the same folder as this setup file."
 }
 
-if ($py) {
-    Skip "Python found: $(& $py --version 2>&1)"
-} else {
-    Step "1a" "Installing Python via winget..."
-    $wingetOk = $false
-    try {
-        winget install Python.Python.3.11 `
-            --accept-package-agreements --accept-source-agreements `
-            --silent --scope machine
-        # Refresh PATH
-        $env:PATH = [Environment]::GetEnvironmentVariable("PATH","Machine") + ";" +
-                    [Environment]::GetEnvironmentVariable("PATH","User")
-        $py = "python"
-        $wingetOk = $true
-        OK "Python installed via winget"
-    } catch {
-        Warn "winget failed — trying direct download..."
-    }
-
-    if (-not $wingetOk) {
-        Step "1b" "Downloading Python 3.11 installer (~25 MB)..."
-        try {
-            $pyUrl = "https://www.python.org/ftp/python/3.11.9/python-3.11.9-amd64.exe"
-            $pyTmp = "$env:TEMP\python-installer.exe"
-            Invoke-WebRequest $pyUrl -OutFile $pyTmp -UseBasicParsing
-            Start-Process $pyTmp -ArgumentList "/quiet InstallAllUsers=1 PrependPath=1 Include_test=0" -Wait
-            Remove-Item $pyTmp -Force -ErrorAction SilentlyContinue
-            $env:PATH = [Environment]::GetEnvironmentVariable("PATH","Machine") + ";" +
-                        [Environment]::GetEnvironmentVariable("PATH","User")
-            $py = "python"
-            OK "Python 3.11 installed"
-        } catch {
-            Fail "Could not install Python. Visit python.org and install 3.11+, then re-run this setup."
-        }
-    }
-}
-
-# =============================================================================
-# STEP 2 — pip packages
-# =============================================================================
-NextStep "Python packages"
-
-$req = Join-Path $ServerDir "requirements.txt"
-if (-not (Test-Path $req)) {
-    Fail "requirements.txt not found at: $req`nMake sure the 'server' folder is next to this bat file."
-}
-
-Step "2" "Installing packages from requirements.txt..."
-try {
-    & $py -m pip install -r $req -q --disable-pip-version-check 2>&1 | Out-Null
-    OK "All packages installed"
-} catch {
-    Fail "pip install failed. Check your internet connection and try again."
-}
-
-# =============================================================================
-# STEP 3 — ViGEm Bus Driver (the gamepad emulation driver)
-# =============================================================================
-NextStep "ViGEm Bus Driver  (Xbox gamepad emulation)"
-
-# Quick check: try to create a virtual gamepad — if it works, driver is present.
+# ── ViGEm Bus Driver ──────────────────────────────────────────────────────────
+Write-Host "  [1/3] ViGEm gamepad driver" -ForegroundColor White
 $vigEmOk = $false
 try {
-    $check = & $py -c "import vgamepad; g=vgamepad.VX360Gamepad(); del g; print('ok')" 2>&1
-    if ($check -match "ok") { $vigEmOk = $true }
+    $svc = Get-Service -Name ViGEmBus -ErrorAction SilentlyContinue
+    if ($svc) { $vigEmOk = $true }
 } catch {}
 
 if ($vigEmOk) {
-    Skip "ViGEm driver already installed and working"
+    Skip "ViGEm driver already installed"
 } else {
-    Step "3" "Downloading ViGEm Bus Driver..."
+    Write-Host "        Downloading driver..." -ForegroundColor DarkGray
     try {
-        # Fetch latest release info from GitHub API
-        $apiUrl = "https://api.github.com/repos/nefarius/ViGEmBus/releases/latest"
-        $rel    = Invoke-RestMethod $apiUrl -UseBasicParsing -Headers @{
-            "User-Agent" = "TouchPlay-Setup/1.0"
-        }
-        $asset  = $rel.assets | Where-Object { $_.name -match "\.exe$" } | Select-Object -First 1
-        if (-not $asset) { throw "No exe asset found in latest release" }
-
-        $vigEmTmp = "$env:TEMP\ViGEmBus-installer.exe"
-        Write-Host "      Downloading $($asset.name)..." -ForegroundColor DarkGray
-        Invoke-WebRequest $asset.browser_download_url -OutFile $vigEmTmp -UseBasicParsing
-
-        Write-Host "      Installing driver (silent)..." -ForegroundColor DarkGray
-        $proc = Start-Process $vigEmTmp -ArgumentList "/passive /norestart" -Wait -PassThru
-        Remove-Item $vigEmTmp -Force -ErrorAction SilentlyContinue
-
-        if ($proc.ExitCode -notin @(0, 3010)) {
-            throw "Installer exited with code $($proc.ExitCode)"
-        }
-        OK "ViGEm Bus Driver installed"
-
-        # Final verification
-        $check2 = & $py -c "import vgamepad; g=vgamepad.VX360Gamepad(); del g; print('ok')" 2>&1
-        if ($check2 -notmatch "ok") {
-            if ($proc.ExitCode -eq 3010) {
-                Warn "A REBOOT IS REQUIRED to complete the driver install. Reboot then re-run setup."
-            } else {
-                Warn "Driver installed but gamepad test failed. Try rebooting."
-            }
-        } else {
-            OK "Gamepad emulation verified"
-        }
+        $api   = Invoke-RestMethod "https://api.github.com/repos/nefarius/ViGEmBus/releases/latest" `
+                    -UseBasicParsing -Headers @{"User-Agent"="TouchPlay-Setup"}
+        $asset = $api.assets | Where-Object { $_.name -match "\.exe$" } | Select-Object -First 1
+        $tmp   = "$env:TEMP\ViGEmBus-setup.exe"
+        Invoke-WebRequest $asset.browser_download_url -OutFile $tmp -UseBasicParsing
+        $p = Start-Process $tmp -ArgumentList "/passive /norestart" -Wait -PassThru
+        Remove-Item $tmp -Force -ErrorAction SilentlyContinue
+        if ($p.ExitCode -eq 3010) { Warn "Reboot required to finish driver install — reboot then relaunch the server" }
+        else { OK "ViGEm driver installed" }
     } catch {
-        Warn "Could not auto-install ViGEm: $_"
-        Warn "Please install it manually from: https://github.com/nefarius/ViGEmBus/releases/latest"
-        Warn "Then re-run this setup."
+        Warn "Could not install driver automatically."
+        Warn "Get it from: github.com/nefarius/ViGEmBus/releases/latest"
     }
 }
 
-# =============================================================================
-# STEP 4 — Windows Firewall rules
-# =============================================================================
-NextStep "Windows Firewall rules"
-
+# ── Firewall rules ────────────────────────────────────────────────────────────
+Write-Host "`n  [2/3] Firewall rules" -ForegroundColor White
 foreach ($r in @(
-    @{name="TouchPlay Server TCP"; proto="TCP"; port=8765},
-    @{name="TouchPlay Server UDP"; proto="UDP"; port=8766}
+    @{n="TouchPlay TCP"; p="TCP"; port=8765},
+    @{n="TouchPlay UDP"; p="UDP"; port=8766}
 )) {
-    $chk = netsh advfirewall firewall show rule "name=$($r.name)" 2>&1
-    if ($chk -notmatch "No rules match") {
-        Skip "$($r.name)"
-    } else {
-        netsh advfirewall firewall add rule `
-            "name=$($r.name)" dir=in action=allow `
-            "protocol=$($r.proto)" "localport=$($r.port)" | Out-Null
-        OK "Added firewall rule: $($r.name)"
+    $chk = netsh advfirewall firewall show rule "name=$($r.n)" 2>&1
+    if ($chk -notmatch "No rules match") { Skip $r.n }
+    else {
+        netsh advfirewall firewall add rule "name=$($r.n)" dir=in action=allow "protocol=$($r.p)" "localport=$($r.port)" | Out-Null
+        OK "Firewall: $($r.n)"
     }
 }
 
-# =============================================================================
-# STEP 5 — Desktop shortcut
-# =============================================================================
-NextStep "Desktop shortcut"
-
-$serverBat = Join-Path $ScriptDir "run_server.bat"
-$desktop   = [Environment]::GetFolderPath("Desktop")
-$lnkPath   = Join-Path $desktop "TouchPlay Server.lnk"
-
+# ── Desktop shortcut ──────────────────────────────────────────────────────────
+Write-Host "`n  [3/3] Desktop shortcut" -ForegroundColor White
 try {
-    $wsh = New-Object -ComObject WScript.Shell
-    $lnk = $wsh.CreateShortcut($lnkPath)
-    $lnk.TargetPath       = $serverBat
+    $lnk = (New-Object -ComObject WScript.Shell).CreateShortcut(
+        "$([Environment]::GetFolderPath('Desktop'))\TouchPlay Server.lnk")
+    $lnk.TargetPath = $ExePath
     $lnk.WorkingDirectory = $ScriptDir
-    $lnk.Description      = "TouchPlay — Start Controller Server"
-    # Use cmd.exe icon (closest built-in; replace with your own .ico if desired)
-    $lnk.IconLocation     = "cmd.exe,0"
-    $lnk.WindowStyle      = 1
+    $lnk.Description = "TouchPlay — Start Controller Server"
     $lnk.Save()
-    OK "Shortcut created on Desktop: 'TouchPlay Server'"
-} catch {
-    Warn "Could not create shortcut: $_"
-}
+    OK "Shortcut created on Desktop"
+} catch { Warn "Could not create shortcut: $_" }
 
-# =============================================================================
-# DONE
-# =============================================================================
+# ── Done ──────────────────────────────────────────────────────────────────────
 Write-Host ""
-Write-Host "  ─────────────────────────────────────────────────────" -ForegroundColor DarkGray
-Write-Host "   Setup complete!  Everything is ready." -ForegroundColor Green
-Write-Host "  ─────────────────────────────────────────────────────" -ForegroundColor DarkGray
+Write-Host "  ─────────────────────────────────────────────" -ForegroundColor DarkGray
+Write-Host "   Done!  Double-click [TouchPlay Server] on your Desktop to start." -ForegroundColor Green
+Write-Host "  ─────────────────────────────────────────────" -ForegroundColor DarkGray
 Write-Host ""
-Write-Host "  HOW TO PLAY:" -ForegroundColor White
-Write-Host "   1. Double-click [TouchPlay Server] on your Desktop" -ForegroundColor DarkGray
-Write-Host "   2. Open the TouchPlay app on your phone" -ForegroundColor DarkGray
-Write-Host "   3. The app auto-connects — start gaming!" -ForegroundColor DarkGray
-Write-Host ""
-Write-Host "  CO-OP:  Up to 4 phones at once (each gets its own controller)" -ForegroundColor DarkGray
-Write-Host ""
-
-Write-Host "  Press Enter to close..." -ForegroundColor DarkGray
-[void][Console]::ReadLine()
+Write-Host "  Press Enter to close..."; [void][Console]::ReadLine()

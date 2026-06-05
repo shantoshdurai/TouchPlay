@@ -16,6 +16,11 @@ server/__pycache__/
 server/*.pyc
 server/qr.png
 
+# PyInstaller output (exe attached to releases, not committed)
+dist/
+build_temp/
+*.spec
+
 # General
 *.log
 .DS_Store
