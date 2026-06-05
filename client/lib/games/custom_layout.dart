@@ -421,18 +421,18 @@ CustomLayout cloneOvercooked() => CustomLayout(
       floatingSticks: true,
       items: [
         // ── Main Action Buttons ──
-        _b(ControlKind.button, 0.86, 0.58, 'gp:A', 62, 'PICK UP', 'asset:pickup'), // A (bottom)
-        _b(ControlKind.button, 0.80, 0.44, 'gp:X', 62, 'CHOP', 'asset:chop'),      // X (left)
-        _b(ControlKind.button, 0.92, 0.44, 'gp:B', 62, 'DASH', 'asset:dash'),      // B (right)
-        _b(ControlKind.button, 0.86, 0.30, 'gp:Y', 62, 'SWEAR', 'asset:swear'),    // Y (top)
+        _b(ControlKind.button, 0.86, 0.58, 'gp:A', 62, 'PICK UP', 'pickup'), // A (bottom)
+        _b(ControlKind.button, 0.80, 0.44, 'gp:X', 62, 'CHOP', 'chop'),      // X (left)
+        _b(ControlKind.button, 0.92, 0.44, 'gp:B', 62, 'DASH', 'dash'),      // B (right)
+        _b(ControlKind.button, 0.86, 0.30, 'gp:Y', 62, 'SWEAR', 'swear'),    // Y (top)
 
         // ── Bumpers for Chef Switching ──
         _b(ControlKind.button, 0.07, 0.22, 'gp:LB', 56, 'CHEF', 'chef'),
         _b(ControlKind.button, 0.93, 0.22, 'gp:RB', 56, 'CHEF', 'chef'),
 
         // ── Menu cluster (side): SELECT=A, BACK=B ──
-        _b(ControlKind.button, 0.07, 0.36, 'gp:A', 56, 'SELECT', 'select'),
-        _b(ControlKind.button, 0.14, 0.36, 'gp:B', 56, 'BACK', 'close'),
+        _b(ControlKind.button, 0.07, 0.45, 'gp:A', 56, 'SELECT', 'select'),
+        _b(ControlKind.button, 0.14, 0.45, 'gp:B', 56, 'BACK', 'close'),
 
         // ── Center utility ──
         _b(ControlKind.button, 0.50, 0.11, 'gp:START', 46, '', 'pause'),

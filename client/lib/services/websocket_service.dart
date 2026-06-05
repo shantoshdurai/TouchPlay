@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'package:device_info_plus/device_info_plus.dart';
 import 'package:flutter/widgets.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
@@ -85,6 +86,8 @@ class WebSocketService with WidgetsBindingObserver {
   bool _serverFull = false;
   bool get serverFull => _serverFull;
 
+  String _deviceName = "Unknown Device";
+
   // Sensitivity
   final sensitivity = SensitivitySettings();
 
@@ -107,9 +110,25 @@ class WebSocketService with WidgetsBindingObserver {
     WidgetsBinding.instance.addObserver(this);
     final prefs = await SharedPreferences.getInstance();
     _manualIp = prefs.getString('manual_ip');
+    
+    try {
+      final deviceInfo = DeviceInfoPlugin();
+      if (Platform.isAndroid) {
+        final info = await deviceInfo.androidInfo;
+        final manufacturer = info.manufacturer.replaceFirst(RegExp(r'^[a-z]'), info.manufacturer.substring(0, 1).toUpperCase());
+        _deviceName = '$manufacturer ${info.model}'.trim();
+      } else if (Platform.isIOS) {
+        final info = await deviceInfo.iosInfo;
+        _deviceName = info.name;
+      } else {
+        _deviceName = Platform.localHostname;
+      }
+    } catch (_) {}
+
     await loadSensitivity();
     _running  = true;
     _startUdpDiscovery();
+    _sweepLocalSubnets();
     _scheduleConnect(immediately: true);
   }
 
@@ -196,6 +215,56 @@ class WebSocketService with WidgetsBindingObserver {
     } catch (_) {}
   }
 
+  // ── Subnet Sweeper (USB Tethering Fallback) ─────────────────────────────────
+
+  void _sweepLocalSubnets() async {
+    try {
+      final interfaces = await NetworkInterface.list();
+      final subnets = <String>{};
+      
+      for (var interface in interfaces) {
+        for (var addr in interface.addresses) {
+          if (addr.type == InternetAddressType.IPv4) {
+            final ip = addr.address;
+            if (ip.startsWith('127.')) continue;
+            final parts = ip.split('.');
+            if (parts.length == 4) {
+              subnets.add('${parts[0]}.${parts[1]}.${parts[2]}');
+            }
+          }
+        }
+      }
+      
+      // Always include standard tethering just in case
+      subnets.add('192.168.42');
+      subnets.add('192.168.137');
+      
+      for (final subnet in subnets) {
+        for (int i = 1; i < 255; i++) {
+          if (_state == ConnectionState.connected) return;
+          _pingSweep('$subnet.$i');
+          // brief yield to not block the main thread
+          if (i % 20 == 0) await Future.delayed(const Duration(milliseconds: 10));
+        }
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _pingSweep(String ip) async {
+    try {
+      final s = await Socket.connect(ip, _port, timeout: const Duration(milliseconds: 300));
+      s.destroy();
+      if (_discoveredIp != ip) {
+        _discoveredIp = ip;
+        if (_state != ConnectionState.connected) {
+          _reconnectTimer?.cancel();
+          _disconnect();
+          _scheduleConnect(immediately: true);
+        }
+      }
+    } catch (_) {}
+  }
+
   // ── IP management ───────────────────────────────────────────────────────────
 
   Future<void> setManualIp(String ip) async {
@@ -209,6 +278,7 @@ class WebSocketService with WidgetsBindingObserver {
   /// Force a fresh discovery + connection attempt (the "Rescan" button).
   void reconnect() {
     _disconnect();
+    _sweepLocalSubnets();
     _tryConnect(silent: false);
   }
 
@@ -314,6 +384,7 @@ class WebSocketService with WidgetsBindingObserver {
         _playerNumber  = (data['player'] as num?)?.toInt();
         _maxPlayers    = (data['maxPlayers'] as num?)?.toInt();
         _playerCtrl.add(_playerNumber);
+        send({'type': 'client_info', 'phone_name': _deviceName});
       } else if (data['type'] == 'server_full') {
         _serverFull   = true;
         _maxPlayers   = (data['max'] as num?)?.toInt();

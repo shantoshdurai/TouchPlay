@@ -143,12 +143,42 @@ class _ControllerScreenState extends State<ControllerScreen> {
     setState(() { if (wasActive) _profileId = 'standard'; });
   }
 
-  void _newLayout() => showDialog(context: context, builder: (_) =>
+  void _saveProfile() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('selected_profile', _profileId);
+  }
+
+  void _selectProfile(String id) {
+    if (id == _profileId) return;
+    setState(() => _profileId = id);
+    _saveProfile();
+  }
+
+  void _openEditCurrent() {
+    if (_profileId == 'standard' || _profileId == 'forza' || _profileId == 'spiderman' || _profileId == 'overcooked') {
+      _customizePreset(_profileId);
+    } else {
+      final c = _activeCustom;
+      if (c != null) _openEditor(c);
+    }
+  }
+
+  void _deleteCurrentCustom() {
+    if (!_profileId.startsWith('custom:')) return;
+    final id = _profileId.substring(7);
+    setState(() {
+      _customLayouts.removeWhere((l) => l.id == id);
+      _profileId = 'standard';
+    });
+    CustomLayoutStore.saveAll(_customLayouts);
+    _saveProfile();
+  }
+
+  void _newLayout() async {showDialog(context: context, builder: (_) =>
       _TemplatePicker(onPick: (tpl) {
         Navigator.of(context).pop();
         _openEditor(newLayoutFromTemplate(tpl));
       }));
-
   // "Customize" a built-in preset â†’ open an editable copy in the editor.
   // Forza first asks which steering style to edit (wheel / slider / tilt / pads),
   // then opens the editor with that steering control + pedals + buttons.
@@ -261,6 +291,7 @@ class _ControllerScreenState extends State<ControllerScreen> {
               profileId: _profileId,
               steerMode: _forzaSteer,
               onSteerMode: (m) => _setSteer(m),
+              onEditCurrent: _openEditCurrent,
             ),
           if (_showGamesMenu)
             _GamesDropdown(
@@ -271,12 +302,11 @@ class _ControllerScreenState extends State<ControllerScreen> {
               onMore: () => setState(() { _showGamesMenu = false; _showGames = true; }),
               onEditCurrent: () {
                 setState(() => _showGamesMenu = false);
-                if (_profileId == 'standard' || _profileId == 'forza' || _profileId == 'spiderman' || _profileId == 'overcooked') {
-                  _customizePreset(_profileId);
-                } else {
-                  final c = _activeCustom;
-                  if (c != null) _openEditor(c);
-                }
+                _openEditCurrent();
+              },
+              onDeleteCurrent: () {
+                setState(() => _showGamesMenu = false);
+                _deleteCurrentCustom();
               },
               onClose: () => setState(() => _showGamesMenu = false),
             ),
@@ -1062,6 +1092,19 @@ class _SettingsPanelState extends State<_SettingsPanel> {
         color: Colors.white, fontSize: 17, fontWeight: FontWeight.w600)),
       const Spacer(),
       GestureDetector(
+        onTap: () {
+          widget.onClose();
+          widget.onEditCurrent();
+        },
+        child: Container(
+          padding: const EdgeInsets.all(6),
+          decoration: const BoxDecoration(
+            shape: BoxShape.circle, color: Color(0xFF1A1A24)),
+          child: const Icon(Icons.edit_outlined, color: Color(0xFF00D4FF), size: 16),
+        ),
+      ),
+      const SizedBox(width: 8),
+      GestureDetector(
         onTap: widget.onClose,
         child: Container(
           padding: const EdgeInsets.all(6),
@@ -1231,18 +1274,7 @@ class _ConnChipState extends State<_ConnChip> with SingleTickerProviderStateMixi
   Widget _stat(String text, Color color, {FontWeight w = FontWeight.normal}) =>
       Text(text, style: TextStyle(color: color, fontSize: 10, fontWeight: w));
 
-  // Cyan "P2" pill â€” your assigned co-op player slot.
-  Widget _playerBadge(int n) => Container(
-    margin: const EdgeInsets.only(right: 7),
-    padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
-    decoration: BoxDecoration(
-      color: const Color(0x2200D4FF),
-      borderRadius: BorderRadius.circular(5),
-      border: Border.all(color: const Color(0xFF00D4FF), width: 1),
-    ),
-    child: Text('P$n', style: const TextStyle(
-      color: Color(0xFF00D4FF), fontSize: 10, fontWeight: FontWeight.bold, letterSpacing: 0.5)),
-  );
+
 
   @override
   Widget build(BuildContext context) {
@@ -1252,10 +1284,11 @@ class _ConnChipState extends State<_ConnChip> with SingleTickerProviderStateMixi
     if (connected) {
       if (_latency != null) {
         dotColor   = _latColor(_latency!);
-        label      = '${_latency}ms';
+        label      = _player != null ? 'P$_player Â· ${_latency}ms' : '${_latency}ms';
         labelColor = dotColor;
       } else {
-        dotColor = const Color(0xFF1DB954); label = 'Connected';
+        dotColor = const Color(0xFF1DB954); 
+        label = _player != null ? 'P$_player Â· Connected' : 'Connected';
       }
     } else if (widget.state == ws.ConnectionState.connecting) {
       dotColor = const Color(0xFFF9A825); label = 'Connecting';
@@ -1280,8 +1313,7 @@ class _ConnChipState extends State<_ConnChip> with SingleTickerProviderStateMixi
           border: Border.all(color: Colors.white12, width: 1),
         ),
         child: Row(mainAxisSize: MainAxisSize.min, children: [
-          // Local co-op: show which player this phone is once the server assigns it.
-          if (connected && _player != null) _playerBadge(_player!),
+
           widget.state == ws.ConnectionState.connecting
               ? FadeTransition(opacity: _pulse, child: dot)
               : dot,
@@ -1685,7 +1717,7 @@ class _GamesDropdown extends StatelessWidget {
   final String currentId;
   final List<CustomLayout> customLayouts;
   final ValueChanged<String> onPick;
-  final VoidCallback onNew, onMore, onEditCurrent, onClose;
+  final VoidCallback onNew, onMore, onEditCurrent, onDeleteCurrent, onClose;
 
   @override
   Widget build(BuildContext context) {
@@ -1730,20 +1762,16 @@ class _GamesDropdown extends StatelessWidget {
                 Flexible(child: SingleChildScrollView(
                   child: Column(mainAxisSize: MainAxisSize.min, children: [
                     for (final p in kGameProfiles.where((p) => !p.comingSoon))
-                      _row(p.icon, p.name, currentId == p.id, () => onPick(p.id)),
+                      _row(p.icon, p.name, currentId == p.id, () => onPick(p.id),
+                          onEdit: currentId == p.id ? onEditCurrent : null),
                     for (final l in customLayouts)
                       _row(Icons.tune, l.name, currentId == 'custom:${l.id}',
-                          () => onPick('custom:${l.id}')),
+                          () => onPick('custom:${l.id}'),
+                          onEdit: currentId == 'custom:${l.id}' ? onEditCurrent : null,
+                          onDelete: currentId == 'custom:${l.id}' ? onDeleteCurrent : null),
                   ]),
                 )),
                 const Divider(height: 1, color: Color(0xFF20202C)),
-                // One-tap edit of whatever's active â€” no more digging into "All layouts".
-                if (currentId == 'standard' || currentId == 'forza' ||
-                    currentId == 'spiderman' || currentId == 'overcooked' || currentId.startsWith('custom:'))
-                  _row(
-                    currentId.startsWith('custom:') ? Icons.edit_outlined : Icons.tune,
-                    currentId.startsWith('custom:') ? 'Edit this layout' : 'Customize this layout',
-                    false, onEditCurrent, accentIcon: true),
                 _row(Icons.add_circle_outline, 'New layout', false, onNew, accentIcon: true),
                 _row(Icons.grid_view_rounded, 'All layouts & more', false, onMore, accentIcon: true),
                 const SizedBox(height: 4),
@@ -1756,7 +1784,7 @@ class _GamesDropdown extends StatelessWidget {
   }
 
   Widget _row(IconData icon, String label, bool active, VoidCallback onTap,
-      {bool accentIcon = false}) {
+      {bool accentIcon = false, VoidCallback? onEdit, VoidCallback? onDelete}) {
     const accent = Color(0xFF00D4FF);
     return InkWell(
       onTap: onTap,
@@ -1770,7 +1798,20 @@ class _GamesDropdown extends StatelessWidget {
             style: TextStyle(
               color: active ? accent : Colors.white, fontSize: 12,
               fontWeight: active ? FontWeight.w600 : FontWeight.normal))),
-          if (active) const Icon(Icons.check, size: 15, color: accent),
+          if (active && onEdit == null) const Icon(Icons.check, size: 15, color: accent),
+          if (active && onEdit != null) ...[
+            GestureDetector(
+              onTap: onEdit,
+              child: const Icon(Icons.edit_outlined, size: 16, color: accent),
+            ),
+            if (onDelete != null) ...[
+              const SizedBox(width: 8),
+              GestureDetector(
+                onTap: onDelete,
+                child: const Icon(Icons.delete_outline, size: 16, color: Colors.redAccent),
+              ),
+            ],
+          ],
         ]),
       ),
     );
@@ -2068,14 +2109,7 @@ class _IpDialogState extends State<_IpDialog> {
             ),
             const SizedBox(height: 14),
 
-            if (!connected) ...[
-              _label('IF IT WON\'T CONNECT'),
-              const SizedBox(height: 6),
-              _tip('Phone and PC on the same Wi-Fi â€” or plug in USB and turn on USB tethering.'),
-              _tip('Allow "TouchPlay" / python through Windows Firewall (Private + Public).'),
-              _tip('Make sure the server is running on the PC.'),
-              const SizedBox(height: 14),
-            ],
+
 
             _label('OR ENTER PC IP MANUALLY'),
             const SizedBox(height: 8),

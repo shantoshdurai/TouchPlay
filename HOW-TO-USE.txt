@@ -1,0 +1,35 @@
+TouchPlay - Quick Start Guide
+==============================
+
+WHAT'S IN THIS FOLDER
+----------------------
+  TouchPlay-Server.exe  — PC server that streams controller input to your phone
+  TouchPlay-Setup.bat   — One-click installer / dependency checker
+  HOW-TO-USE.txt        — This guide
+
+
+FIRST-TIME SETUP
+----------------
+  1. Double-click TouchPlay-Setup.bat and let it finish.
+  2. Make sure your PC and phone are on the SAME Wi-Fi network.
+
+
+EVERY TIME YOU PLAY
+-------------------
+  3. Run TouchPlay-Server.exe on your PC.
+  4. Note the IP address shown in the server window (e.g. 192.168.x.x).
+  5. Open the TouchPlay app on your phone.
+  6. Enter that IP address and tap Connect.
+  7. Pick your game layout and start playing.
+
+
+TIPS
+----
+  - Keep the server window open while playing — closing it disconnects your phone.
+  - If the connection fails, check that Windows Firewall isn't blocking the app.
+  - For best performance use 5 GHz Wi-Fi.
+
+
+SUPPORT
+-------
+  GitHub: https://github.com/  (see the Releases page for updates)

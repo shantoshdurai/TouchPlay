@@ -86,7 +86,7 @@ try {
 } catch {}
 
 if ($vigEmOk) {
-    Skip "ViGEm driver already installed"
+    OK "ViGEm driver already installed"
 } else {
     Write-Host "        Downloading driver..." -ForegroundColor DarkGray
     try {
@@ -94,7 +94,36 @@ if ($vigEmOk) {
                     -UseBasicParsing -Headers @{"User-Agent"="TouchPlay-Setup"}
         $asset = $api.assets | Where-Object { $_.name -match "\.exe$" } | Select-Object -First 1
         $tmp   = "$env:TEMP\ViGEmBus-setup.exe"
-        Invoke-WebRequest $asset.browser_download_url -OutFile $tmp -UseBasicParsing
+        $req = [System.Net.WebRequest]::Create($asset.browser_download_url)
+        $req.UserAgent = "TouchPlay-Setup"
+        $res = $req.GetResponse()
+        $total = $res.ContentLength
+        $stream = $res.GetResponseStream()
+        $fs = New-Object System.IO.FileStream $tmp, Create
+        $buffer = New-Object byte[] 8192
+        $read = 0; $downloaded = 0; $pacState = 0
+        
+        Write-Host -NoNewline "        "
+        do {
+            $read = $stream.Read($buffer, 0, $buffer.Length)
+            if ($read -gt 0) {
+                $fs.Write($buffer, 0, $read)
+                $downloaded += $read
+                $pct = if ($total -gt 0) { [math]::Floor(($downloaded / $total) * 100) } else { 0 }
+                $cols = 20
+                $filled = [math]::Floor(($pct / 100) * $cols)
+                $pac = if ($pacState % 2 -eq 0) { "C" } else { "c" }
+                if ($pct -eq 100) { $pac = "☻" }
+                $pacState++
+                $bar = ""
+                if ($filled -gt 0) { $bar += "-" * ($filled - 1) + $pac }
+                $empty = $cols - $filled
+                if ($empty -gt 0) { $bar += "·" * $empty }
+                Write-Host -NoNewline "`r        [$bar] $pct%  "
+            }
+        } while ($read -gt 0)
+        $fs.Close(); $stream.Close(); Write-Host ""
+        
         $p = Start-Process $tmp -ArgumentList "/passive /norestart" -Wait -PassThru
         Remove-Item $tmp -Force -ErrorAction SilentlyContinue
         if ($p.ExitCode -eq 3010) { Warn "Reboot required to finish driver install — reboot then relaunch the server" }
@@ -137,4 +166,8 @@ Write-Host "  ──────────────────────
 Write-Host "   Done!  Double-click [TouchPlay Server] on your Desktop to start." -ForegroundColor Green
 Write-Host "  ─────────────────────────────────────────────" -ForegroundColor DarkGray
 Write-Host ""
-Write-Host "  Press Enter to close..."; [void][Console]::ReadLine()
+$ans = Read-Host "  Launch TouchPlay Server now? (Y/N)"
+if ($ans -match '^[yY]') {
+    Write-Host "  Starting server..." -ForegroundColor Cyan
+    Start-Process $ExePath -WorkingDirectory $ScriptDir
+}

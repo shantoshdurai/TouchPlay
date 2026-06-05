@@ -44,16 +44,18 @@ _LOGO_LINES = [
 
 
 class PlayerInfo:
-    __slots__ = ("ip", "connected", "grace", "since")
+    __slots__ = ("ip", "phone", "connected", "grace", "since")
 
     def __init__(self) -> None:
         self.ip: Optional[str] = None
+        self.phone: Optional[str] = None
         self.connected = False
         self.grace = False
         self.since: Optional[datetime] = None
 
     def reset(self) -> None:
         self.ip = None
+        self.phone = None
         self.connected = False
         self.grace = False
         self.since = None
@@ -97,6 +99,10 @@ class ServerUI:
     def player_release(self, slot: int) -> None:
         self._players[slot - 1].reset()
         self.log(f"[{_D}]○ P{slot} released[/]")
+
+    def player_set_name(self, slot: int, name: str) -> None:
+        self._players[slot - 1].phone = name
+        self._refresh()
 
     def player_rejected(self, ip: str, max_p: int) -> None:
         self.log(f"[{_R}]server full — rejected {ip}[/]")
@@ -168,39 +174,59 @@ class ServerUI:
                     header_style=f"bold {_C}", padding=(0, 2))
         tbl.add_column("SLOT", width=5)
         tbl.add_column("STATUS", width=13)
-        tbl.add_column("IP", width=17, style=_D)
+        tbl.add_column("IP / DEVICE", width=25, style=_D)
         tbl.add_column("SINCE", width=8, style=_D)
+        
+        has_players = False
         for i, p in enumerate(self._players):
+            if not p.connected and not p.grace:
+                continue
+            has_players = True
+            
             if p.connected:
                 st = f"[{_G}]● connected[/]"
-                ip = f"[white]{p.ip}[/]"
-                since = self._ago(p.since)
-            elif p.grace:
-                st = f"[{_Y}]◔ grace[/]"
-                ip = f"[{_D}]{p.ip}[/]"
-                since = self._ago(p.since)
             else:
-                st = f"[{_D}]○ waiting[/]"
-                ip = f"[{_D}]—[/]"
-                since = f"[{_D}]—[/]"
+                st = f"[{_Y}]◔ grace[/]"
+                
+            ip_str = p.ip or "—"
+            if p.phone:
+                ip_str += f"  [{p.phone}]"
+            ip = f"[white]{ip_str}[/]" if p.connected else f"[{_D}]{ip_str}[/]"
+            since = self._ago(p.since)
             tbl.add_row(f"[bold]P{i+1}[/]", st, ip, since)
+
+        available_slots = self._max - active
+        if available_slots > 0:
+            slots_text = f"Waiting for connections... ({available_slots} slots available)" if not has_players else f"({available_slots} slots available)"
+        else:
+            slots_text = ""
 
         # Event log
         log_lines = list(self._log) or [f"[{_D}]waiting for phones to connect…[/]"]
         log_group = Group(*[Text.from_markup(x) for x in log_lines])
 
-        body = Group(
+        items = [
             logo,
             Text(""),
             status,
-            Rule(style=_D),
-            tbl,
+            Rule(style=_D)
+        ]
+        
+        if has_players:
+            items.append(tbl)
+            
+        if slots_text:
+            items.append(Padding(Text(slots_text, style=_D), (0, 0, 1, 0) if has_players else (1, 0)))
+
+        items.extend([
             Rule(style=_D),
             Text("RECENT", style=f"bold {_D}"),
             log_group,
             Text(""),
             Text("Ctrl+C to stop", style=_D),
-        )
+        ])
+        
+        body = Group(*items)
         return Padding(body, (1, 3))
 
     @staticmethod

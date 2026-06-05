@@ -9,8 +9,32 @@ from gamepad import (
     GamepadController, mouse_move, mouse_click,
     mouse_down, mouse_up, key_down, key_up, release_all_inputs,
 )
-from qr_gen import get_best_ip
 from ui import ServerUI
+
+def get_best_ip() -> str:
+    """Return USB tethering IP (192.168.42.x) if available, else best LAN IP."""
+    candidates = []
+    try:
+        hostname = socket.gethostname()
+        for info in socket.getaddrinfo(hostname, None):
+            addr = info[4][0]
+            if addr.startswith("192.168.42."):
+                return addr
+            if not addr.startswith("127.") and ":" not in addr:
+                candidates.append(addr)
+    except Exception:
+        pass
+
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+            s.connect(("8.8.8.8", 80))
+            ip = s.getsockname()[0]
+            if not ip.startswith("127."):
+                return ip
+    except Exception:
+        pass
+
+    return candidates[0] if candidates else "127.0.0.1"
 
 VERSION      = "1.0.0"
 PORT         = 8765
@@ -146,6 +170,10 @@ def handle_message(data: dict, sess: Session) -> str | None:
             release_all_inputs()
     elif t == "ping":
         return json.dumps({"type": "pong"})
+    elif t == "client_info":
+        phone_name = data.get("phone_name")
+        if phone_name and _ui:
+            _ui.player_set_name(sess.player, phone_name)
     return None
 
 
