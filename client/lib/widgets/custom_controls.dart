@@ -1,8 +1,8 @@
-import 'dart:math';
+﻿import 'dart:math';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import '../games/custom_layout.dart';
 import '../services/websocket_service.dart';
+import '../services/haptics.dart';
 import 'trigger_button.dart';
 import 'action_button.dart';
 import 'forza_controls.dart';
@@ -13,7 +13,11 @@ const _kRest    = Color(0x66FFFFFF);
 const _kRestDim = Color(0x33FFFFFF);
 const _kFill    = Color(0x2200D4FF);
 
-bool get _vib => WebSocketService.instance.sensitivity.vibration;
+/// A button shows a caption under the circle only when it has BOTH an icon and a
+/// label (matches the built-in HUD). Pure-text buttons keep the label inside.
+bool _buttonHasCaption(ControlItem i) =>
+    i.kind == ControlKind.button &&
+    i.icon.isNotEmpty && kIconRegistry.containsKey(i.icon) && i.label.isNotEmpty;
 
 /// Footprint of a control (most are square; mouse pad is wide, pedal is tall).
 Size controlFootprint(ControlItem i) {
@@ -22,7 +26,9 @@ Size controlFootprint(ControlItem i) {
     case ControlKind.pedal:       return Size(i.size, i.size * 1.4);
     case ControlKind.steerSlider: return Size(i.size, i.size * 0.34);
     case ControlKind.steerTilt:   return Size(i.size, i.size * 0.42);
-    case ControlKind.swing:       return Size(i.size, i.size * 2.8);
+    case ControlKind.swing:       return Size(i.size, i.size);
+    // Labelled icon buttons reserve room for the caption beneath the circle.
+    case ControlKind.button:      return Size(i.size, _buttonHasCaption(i) ? i.size + 16 : i.size);
     default:                      return Size(i.size, i.size);
   }
 }
@@ -44,9 +50,10 @@ Widget _rawControl(ControlItem item) {
       return _CustomStick(item: item);
     case ControlKind.trigger:
       final left = item.action == 'trig:left';
+      final defLabel = left ? 'LT' : 'RT';
       return TriggerBar(
         side: left ? 'left' : 'right',
-        label: left ? 'LT' : 'RT',
+        label: item.label.isNotEmpty ? item.label : defLabel,
         width: item.size, height: item.size,
       );
     case ControlKind.dpad:
@@ -62,7 +69,7 @@ Widget _rawControl(ControlItem item) {
     case ControlKind.steerPad:
       return SteeringPad(left: item.action != 'steerpad:right', size: item.size);
     case ControlKind.swing:
-      return SwingButton(width: item.size, height: item.size * 2.8);
+      return SwingButton(size: item.size);
     case ControlKind.pedal:
       final gas = item.action == 'pedal:gas';
       return RacePedal(
@@ -74,7 +81,7 @@ Widget _rawControl(ControlItem item) {
   }
 }
 
-// ── Button: gamepad / keyboard / mouse, momentary (press = down, release = up) ──
+// â”€â”€ Button: gamepad / keyboard / mouse, momentary (press = down, release = up) â”€â”€
 
 class _CustomButton extends StatefulWidget {
   const _CustomButton({required this.item});
@@ -100,8 +107,12 @@ class _CustomButtonState extends State<_CustomButton> {
       s.send({'type': 'mouse_down', 'button': 'left'});
     } else if (a == 'mouse:right') {
       s.send({'type': 'mouse_down', 'button': 'right'});
+    } else if (a == 'combo:zip') {
+      // Spider-Man point launch = L2 + R2 held together.
+      s.send({'type': 'left_trigger',  'value': 1.0});
+      s.send({'type': 'right_trigger', 'value': 1.0});
     }
-    if (_vib) HapticFeedback.mediumImpact();
+    Haptics.instance.heavy();
   }
 
   void _release(PointerEvent e) {
@@ -117,40 +128,64 @@ class _CustomButtonState extends State<_CustomButton> {
       s.send({'type': 'mouse_up', 'button': 'left'});
     } else if (a == 'mouse:right') {
       s.send({'type': 'mouse_up', 'button': 'right'});
+    } else if (a == 'combo:zip') {
+      s.send({'type': 'left_trigger',  'value': 0.0});
+      s.send({'type': 'right_trigger', 'value': 0.0});
     }
-    if (_vib) HapticFeedback.selectionClick();
+    Haptics.instance.tick();
   }
 
   @override
   Widget build(BuildContext context) {
-    final text = widget.item.label.isNotEmpty
-        ? widget.item.label
-        : actionLabel(widget.item.action);
-    final fs = (widget.item.size * (text.length > 3 ? 0.24 : 0.36)).clamp(9.0, 30.0);
+    final item = widget.item;
+    final iconData = item.icon.isNotEmpty ? kIconRegistry[item.icon] : null;
+
+    final circle = AnimatedContainer(
+      duration: const Duration(milliseconds: 60),
+      width: item.size,
+      height: item.size,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        color: _down ? _kFill : Colors.transparent,
+        border: Border.all(color: _down ? _kAccent : _kRest, width: 1.5),
+      ),
+      alignment: Alignment.center,
+      child: iconData != null
+          ? Icon(iconData, color: Colors.white, size: item.size * 0.46)
+          : _label(item),
+    );
+
+    // Icon + label â†’ circle with a caption underneath (built-in HUD look).
+    final child = (iconData != null && item.label.isNotEmpty)
+        ? Column(mainAxisSize: MainAxisSize.min, children: [
+            circle,
+            const SizedBox(height: 4),
+            Text(item.label,
+                style: TextStyle(
+                    color: _down ? _kAccent : Colors.white54,
+                    fontSize: 9, fontWeight: FontWeight.w600, letterSpacing: 1.0)),
+          ])
+        : circle;
+
     return Listener(
       behavior: HitTestBehavior.opaque,
       onPointerDown: _press,
       onPointerUp: _release,
       onPointerCancel: _release,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 60),
-        width: widget.item.size,
-        height: widget.item.size,
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          color: _down ? _kFill : Colors.transparent,
-          border: Border.all(color: _down ? _kAccent : _kRest, width: 1.5),
-        ),
-        alignment: Alignment.center,
-        child: Text(text,
-            textAlign: TextAlign.center,
-            style: TextStyle(color: Colors.white, fontSize: fs, fontWeight: FontWeight.w600)),
-      ),
+      child: child,
     );
+  }
+
+  Widget _label(ControlItem item) {
+    final text = item.label.isNotEmpty ? item.label : actionLabel(item.action);
+    final fs = (item.size * (text.length > 3 ? 0.24 : 0.36)).clamp(9.0, 30.0);
+    return Text(text,
+        textAlign: TextAlign.center,
+        style: TextStyle(color: Colors.white, fontSize: fs, fontWeight: FontWeight.w600));
   }
 }
 
-// ── Stick (fixed position, analog) ────────────────────────────────────────────
+// â”€â”€ Stick (fixed position, analog) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 class _CustomStick extends StatefulWidget {
   const _CustomStick({required this.item});
@@ -239,7 +274,7 @@ class _StickPaint extends CustomPainter {
   bool shouldRepaint(_StickPaint o) => o.thumb != thumb || o.radius != radius;
 }
 
-// ── Mouse pad (drag = move cursor, tap = left click) ──────────────────────────
+// â”€â”€ Mouse pad (drag = move cursor, tap = left click) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 class _CustomMousePad extends StatefulWidget {
   const _CustomMousePad({required this.item});
@@ -250,13 +285,11 @@ class _CustomMousePad extends StatefulWidget {
 
 class _CustomMousePadState extends State<_CustomMousePad> {
   int? _ptr;
-  Offset? _down;
   bool _moved = false;
 
   void _onDown(PointerDownEvent e) {
     if (_ptr != null) return;
     _ptr = e.pointer;
-    _down = e.localPosition;
     _moved = false;
   }
 
@@ -290,7 +323,7 @@ class _CustomMousePadState extends State<_CustomMousePad> {
       child: Container(
         width: w, height: h,
         decoration: BoxDecoration(
-          color: _kFill.withOpacity(0.04),
+          color: _kFill.withValues(alpha: 0.04),
           borderRadius: BorderRadius.circular(14),
           border: Border.all(color: _kRestDim, width: 1.5),
         ),
@@ -306,7 +339,7 @@ class _CustomMousePadState extends State<_CustomMousePad> {
   }
 }
 
-// ── Placeable steering wheel (drag left/right to steer → left stick) ──────────
+// â”€â”€ Placeable steering wheel (drag left/right to steer â†’ left stick) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 class _CustomWheel extends StatefulWidget {
   const _CustomWheel({required this.item});
@@ -333,7 +366,7 @@ class _CustomWheelState extends State<_CustomWheel> {
     if (_ptr != null) return;
     _ptr = e.pointer;
     _startX = e.localPosition.dx;
-    if (_vib) HapticFeedback.selectionClick();
+    Haptics.instance.tick();
   }
 
   void _move(PointerMoveEvent e) {
@@ -386,7 +419,7 @@ class _CustomWheelPainter extends CustomPainter {
     canvas.drawLine(const Offset(0, 0), Offset(0, r * 0.55), spoke);
     canvas.drawCircle(Offset.zero, r * 0.16, Paint()..color = accent);
     canvas.drawLine(Offset(0, -r * 0.55), Offset(0, -r * 0.86), Paint()
-      ..color = _kAccent.withOpacity(0.4 + 0.6 * value.abs())
+      ..color = _kAccent.withValues(alpha: 0.4 + 0.6 * value.abs())
       ..style = PaintingStyle.stroke..strokeWidth = r * 0.07..strokeCap = StrokeCap.round);
     canvas.restore();
   }

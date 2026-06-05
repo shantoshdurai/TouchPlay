@@ -10,13 +10,28 @@ from gamepad import (
 )
 from qr_gen import generate_qr
 
-VERSION   = "1.1.0"       # bumped to the version the app handshakes against
+VERSION   = "1.2.0"       # bumped to the version the app handshakes against
 PORT      = 8765
 UDP_PORT  = 8766          # discovery broadcast port
 BATCH_MS  = 0.008         # 8 ms gamepad flush
 
-gamepad = GamepadController()
-_dirty  = False
+# ── Local co-op: one virtual Xbox pad per phone ──────────────────────────────
+# XInput allows up to 4 controllers, so up to 4 phones can play at once — each
+# gets its own pad (Player 1-4). Sessions are keyed by the phone's IP and held
+# briefly across drops so a flaky Wi-Fi blip doesn't unplug the pad mid-game.
+MAX_PLAYERS   = 4
+GRACE_SECONDS = 20
+
+class Session:
+    __slots__ = ("player", "gamepad", "dirty", "connected")
+    def __init__(self, player: int):
+        self.player    = player
+        self.gamepad   = GamepadController()
+        self.dirty     = False
+        self.connected = True
+
+_sessions      = {}   # client_ip -> Session
+_cleanup_tasks = {}   # client_ip -> asyncio.Task (pending grace cleanup)
 
 
 # ── Windows Firewall auto-allow ──────────────────────────────────────────────
@@ -82,35 +97,37 @@ async def udp_broadcast(ip: str):
 # ── Gamepad flush loop ────────────────────────────────────────────────────────
 
 async def flush_loop():
-    global _dirty
     try:
         while True:
             await asyncio.sleep(BATCH_MS)
-            if _dirty:
-                gamepad.update()
-                _dirty = False
+            for s in list(_sessions.values()):
+                if s.dirty:
+                    s.gamepad.update()
+                    s.dirty = False
     except asyncio.CancelledError:
         pass
 
 
 # ── Message handler ───────────────────────────────────────────────────────────
 
-def handle_message(data: dict) -> str | None:
-    global _dirty
+def handle_message(data: dict, sess: "Session") -> str | None:
     t = data.get("type")
+    g = sess.gamepad
 
     if t == "button_press":
-        gamepad.press_button(data["button"]); _dirty = True
+        g.press_button(data["button"]); sess.dirty = True
     elif t == "button_release":
-        gamepad.release_button(data["button"]); _dirty = True
+        g.release_button(data["button"]); sess.dirty = True
     elif t == "left_stick":
-        gamepad.set_left_stick(data["x"], data["y"]); _dirty = True
+        g.set_left_stick(data["x"], data["y"]); sess.dirty = True
     elif t == "right_stick":
-        gamepad.set_right_stick(data["x"], data["y"]); _dirty = True
+        g.set_right_stick(data["x"], data["y"]); sess.dirty = True
     elif t == "left_trigger":
-        gamepad.set_left_trigger(data["value"]); _dirty = True
+        g.set_left_trigger(data["value"]); sess.dirty = True
     elif t == "right_trigger":
-        gamepad.set_right_trigger(data["value"]); _dirty = True
+        g.set_right_trigger(data["value"]); sess.dirty = True
+    # Mouse + keyboard drive the single PC desktop, so they stay global (a co-op
+    # title is played on gamepads; KB/M is for the solo keyboard-mapped layouts).
     elif t == "mouse_move":
         mouse_move(int(data.get("dx", 0)), int(data.get("dy", 0)))
     elif t == "mouse_click":
@@ -124,27 +141,72 @@ def handle_message(data: dict) -> str | None:
     elif t == "key_up":
         key_up(data.get("key", ""))
     elif t == "reset":
-        gamepad.reset()           # release everything (e.g. on app background)
-        release_all_inputs()
+        g.reset()                       # release this player's pad (app backgrounded)
+        if len(_sessions) <= 1:         # only the solo player → safe to free KB/M too
+            release_all_inputs()
     elif t == "ping":
         return json.dumps({"type": "pong"})
     return None
+
+
+def _assign_player() -> int | None:
+    """Lowest free player slot 1..MAX_PLAYERS, or None when the server is full."""
+    used = {s.player for s in _sessions.values()}
+    for i in range(1, MAX_PLAYERS + 1):
+        if i not in used:
+            return i
+    return None
+
+
+async def _grace_cleanup(ip: str, sess: "Session"):
+    """After a drop, hold the pad for a grace window; free it only if the phone
+    hasn't reconnected by then. Keeps the game from seeing an unplug on a blip."""
+    try:
+        await asyncio.sleep(GRACE_SECONDS)
+    except asyncio.CancelledError:
+        return
+    if _sessions.get(ip) is sess and not sess.connected:
+        sess.gamepad.reset()
+        _sessions.pop(ip, None)         # drop the ref → ViGEm unplugs the pad
+        print(f"[-] Player {sess.player} released ({ip}).")
+    _cleanup_tasks.pop(ip, None)
 
 
 # ── WebSocket handler ─────────────────────────────────────────────────────────
 
 async def handler(websocket):
     client_ip = websocket.remote_address[0]
-    print(f"\n[+] Phone connected! ({client_ip})")
-    gamepad.reset()                       # clean slate for the new session
-    release_all_inputs()
+
+    # Reconnecting within the grace window? Cancel the pending free + reuse the pad.
+    task = _cleanup_tasks.pop(client_ip, None)
+    if task:
+        task.cancel()
+
+    sess = _sessions.get(client_ip)
+    if sess is None:
+        player = _assign_player()
+        if player is None:
+            await websocket.send(json.dumps({"type": "server_full", "max": MAX_PLAYERS}))
+            print(f"[!] Rejected {client_ip}: server full ({MAX_PLAYERS} players).")
+            return
+        sess = Session(player)
+        _sessions[client_ip] = sess
+        print(f"\n[+] Player {player} connected! ({client_ip})")
+    else:
+        sess.connected = True
+        print(f"\n[+] Player {sess.player} reconnected. ({client_ip})")
+
+    sess.gamepad.reset()                  # clean slate — release anything stuck
     try:
-        # Tell the app who it's talking to (version handshake on the client).
-        await websocket.send(json.dumps({"type": "server_info", "version": VERSION}))
+        # Tell the app its player slot + version (handshake on the client).
+        await websocket.send(json.dumps({
+            "type": "server_info", "version": VERSION,
+            "player": sess.player, "maxPlayers": MAX_PLAYERS,
+        }))
         async for raw in websocket:
             try:
                 data     = json.loads(raw)
-                response = handle_message(data)
+                response = handle_message(data, sess)
                 if response:
                     await websocket.send(response)
             except (json.JSONDecodeError, KeyError):
@@ -154,9 +216,11 @@ async def handler(websocket):
     except Exception:
         pass
     finally:
-        gamepad.reset()                   # release everything — never leave an input stuck
-        release_all_inputs()
-        print(f"[-] Phone disconnected. ({client_ip})")
+        sess.connected = False
+        sess.gamepad.reset()              # never leave an input stuck
+        # Hold the slot briefly so a flaky link doesn't unplug the pad mid-game.
+        _cleanup_tasks[client_ip] = asyncio.create_task(_grace_cleanup(client_ip, sess))
+        print(f"[-] Player {sess.player} dropped — holding {GRACE_SECONDS}s. ({client_ip})")
 
 
 # ── Entry point ───────────────────────────────────────────────────────────────
@@ -171,6 +235,7 @@ async def main():
         print("  [!] Couldn't auto-allow the firewall. Run this once as admin,")
         print("      or allow 'python'/'TouchPlay' for Private + Public networks.")
 
+    print(f"  Local co-op ready — up to {MAX_PLAYERS} phones (Players 1-{MAX_PLAYERS}).")
     print("  Waiting for phone...\n")
 
     bg = [asyncio.create_task(flush_loop()), asyncio.create_task(udp_broadcast(ip))]
@@ -185,7 +250,8 @@ async def main():
             t.cancel()
         await asyncio.gather(*bg, return_exceptions=True)
         try:
-            gamepad.reset()
+            for s in list(_sessions.values()):
+                s.gamepad.reset()
             release_all_inputs()
         except Exception:
             pass

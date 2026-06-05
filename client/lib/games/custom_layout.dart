@@ -22,6 +22,7 @@ class ControlItem {
     required this.size,
     this.action = '',
     this.label = '',
+    this.icon = '',
     this.opacity = 1.0,
   });
 
@@ -32,15 +33,17 @@ class ControlItem {
   double size;     // footprint in logical px
   String action;   // encoded binding — see actionLabel() below
   String label;    // optional override text
+  String icon;     // optional icon key — see kIconRegistry below ('' = none)
   double opacity;  // 0..1 — Free-Fire-style per-control transparency
 
   ControlItem copy() => ControlItem(
       id: id, kind: kind, x: x, y: y, size: size,
-      action: action, label: label, opacity: opacity);
+      action: action, label: label, icon: icon, opacity: opacity);
 
   Map<String, dynamic> toJson() => {
         'id': id, 'kind': kind.name, 'x': x, 'y': y,
-        'size': size, 'action': action, 'label': label, 'opacity': opacity,
+        'size': size, 'action': action, 'label': label,
+        'icon': icon, 'opacity': opacity,
       };
 
   factory ControlItem.fromJson(Map<String, dynamic> j) => ControlItem(
@@ -51,9 +54,40 @@ class ControlItem {
         size: (j['size'] as num).toDouble(),
         action: (j['action'] ?? '') as String,
         label: (j['label'] ?? '') as String,
+        icon: (j['icon'] ?? '') as String,
         opacity: ((j['opacity'] ?? 1.0) as num).toDouble(),
       );
 }
+
+/// Stable string-keyed icon table. We store a *key* (not a raw codepoint) so the
+/// release build's icon tree-shaker keeps these glyphs — constructing IconData
+/// from a dynamic codepoint would strip them and show blank squares. Add new
+/// preset icons here; the editor falls back to text for keys it doesn't know.
+const Map<String, IconData> kIconRegistry = {
+  // Forza HUD
+  'gas':     Icons.local_gas_station,
+  'brake':   Icons.front_hand,
+  'hbrake':  Icons.local_parking,
+  'cam':     Icons.cameraswitch,
+  'rewind':  Icons.replay,
+  'horn':    Icons.campaign,
+  'select':  Icons.check,
+  'close':   Icons.close,
+  'map':     Icons.map,
+  'anna':    Icons.assistant,
+  'photo':   Icons.photo_camera,
+  'pause':   Icons.pause,
+  // Spider-Man 2
+  'jump':    Icons.keyboard_double_arrow_up,
+  'attack':  Icons.sports_mma,
+  'dodge':   Icons.directions_run,
+  'wings':   Icons.paragliding,
+  'gadget':  Icons.adjust,
+  'ability': Icons.auto_awesome,
+  'heal':    Icons.healing,
+  'zip':     Icons.gps_fixed,
+  'aim':     Icons.center_focus_strong,
+};
 
 class CustomLayout {
   CustomLayout({
@@ -123,6 +157,7 @@ String actionLabel(String action) {
   if (action == 'swing') return 'SWING';
   if (action == 'pedal:gas') return 'GAS';
   if (action == 'pedal:brake') return 'BRAKE';
+  if (action == 'combo:zip') return 'ZIP';   // L2+R2 — Spider-Man point launch
   return action;
 }
 
@@ -209,8 +244,9 @@ CustomLayout newLayoutFromTemplate(String template) {
 }
 
 ControlItem _b(ControlKind k, double x, double y, String action, double size,
-        [String label = '']) =>
-    ControlItem(id: _newId(), kind: k, x: x, y: y, size: size, action: action, label: label);
+        [String label = '', String icon = '']) =>
+    ControlItem(id: _newId(), kind: k, x: x, y: y, size: size,
+        action: action, label: label, icon: icon);
 
 List<ControlItem> _gamepadTemplate() => [
       _b(ControlKind.stick, 0.15, 0.70, 'stick:left', 150),
@@ -301,48 +337,71 @@ CustomLayout cloneForza([String steer = 'wheel']) {
   return CustomLayout(
     id: _newId(),
     name: 'My Forza · ${labels[steer] ?? 'Wheel'}',
+    // Mirror the built-in racing HUD exactly — same positions, sizes, labels and
+    // icons — so "Customize" opens with the real layout, not a stripped-down copy.
     items: [
       ...steering,
-      _b(ControlKind.pedal, 0.93, 0.60, 'pedal:gas', 112),
-      _b(ControlKind.pedal, 0.80, 0.62, 'pedal:brake', 100),
-      _b(ControlKind.button, 0.66, 0.76, 'gp:A', 80),        // handbrake
-      _b(ControlKind.button, 0.40, 0.24, 'gp:RB', 58),       // camera
-      _b(ControlKind.button, 0.49, 0.24, 'gp:Y', 58),        // rewind
-      _b(ControlKind.button, 0.58, 0.24, 'gp:RS', 58),       // horn
-      _b(ControlKind.button, 0.06, 0.24, 'gp:LB', 56),       // clutch
-      _b(ControlKind.button, 0.13, 0.24, 'gp:B', 56),        // shift up
-      _b(ControlKind.button, 0.42, 0.12, 'gp:BACK', 44),     // map
-      _b(ControlKind.button, 0.50, 0.12, 'gp:START', 44),    // pause
-      _b(ControlKind.button, 0.58, 0.12, 'gp:DPAD_DOWN', 44),// anna
+      // Pedals (bottom-right): GAS=RT, BRAKE=LT
+      _b(ControlKind.pedal, 0.90, 0.70, 'pedal:gas',   100, 'GAS',   'gas'),
+      _b(ControlKind.pedal, 0.77, 0.74, 'pedal:brake',  92, 'BRAKE', 'brake'),
+      // Handbrake (drift) = A, just left of the pedals
+      _b(ControlKind.button, 0.66, 0.78, 'gp:A', 64, 'HBRAKE', 'hbrake'),
+      // Secondary cluster (upper-right): CAM=RB, REWIND=Y, HORN=RS
+      _b(ControlKind.button, 0.78, 0.22, 'gp:RB', 56, 'CAM',    'cam'),
+      _b(ControlKind.button, 0.86, 0.22, 'gp:Y',  56, 'REWIND', 'rewind'),
+      _b(ControlKind.button, 0.93, 0.22, 'gp:RS', 56, 'HORN',   'horn'),
+      // Menu cluster (upper-left): SELECT=A, BACK=B (answer in-game prompts)
+      _b(ControlKind.button, 0.07, 0.22, 'gp:A', 56, 'SELECT', 'select'),
+      _b(ControlKind.button, 0.14, 0.22, 'gp:B', 56, 'BACK',   'close'),
+      // Top-center utility (icon-only): MAP, ANNA, PHOTO, PAUSE
+      _b(ControlKind.button, 0.40, 0.10, 'gp:BACK',      46, '', 'map'),
+      _b(ControlKind.button, 0.47, 0.10, 'gp:DPAD_DOWN', 46, '', 'anna'),
+      _b(ControlKind.button, 0.53, 0.10, 'gp:DPAD_UP',   46, '', 'photo'),
+      _b(ControlKind.button, 0.60, 0.10, 'gp:START',     46, '', 'pause'),
     ],
   );
 }
 
-/// Editable **Marvel's Spider-Man 2** layout. Left/right halves are the fixed
-/// move / camera sticks; the SWING control sits on the right (hold = web-swing,
-/// drag down + release = Space boost). Buttons carry clear labels and can be
-/// rebound to any gamepad button or keyboard key in the editor.
+/// Editable **Marvel's Spider-Man 2** layout — mapped to the game's real
+/// *controller* scheme (the game shows Xbox prompts), so every control sends a
+/// gamepad input the game actually reads. PlayStation → Xbox:
+///   Swing/sprint/wall-run = hold R2 (RT) · Jump = ✕ (A) · Attack = □ (X)
+///   Dodge = ◯ (B) · Web Wings / Yank = △ (Y) · Gadget = R1 (RB)
+///   Ability/suit power = L1 (LB) · Heal = D-pad Down · Aim = L2 (LT)
+///   Zip / Point Launch = L2 + R2 (LT+RT combo)
+///
+/// Left half  = floating MOVE stick. Right half = floating CAMERA stick (active
+/// anywhere outside a placed button). Earlier builds bound Wings/Zip to keyboard
+/// keys (F / C) which do nothing while the game is in controller mode — fixed.
 CustomLayout cloneSpiderman() => CustomLayout(
       id: _newId(),
       name: 'My Spider-Man 2',
-      floatingSticks: true, // left half = MOVE, right half = CAMERA (fixed)
+      floatingSticks: true,
       items: [
-        // SWING — hero control on the right, where the thumb rests.
-        _b(ControlKind.swing, 0.66, 0.52, 'swing', 92),
-        // Combat cluster (bottom-right).
-        _b(ControlKind.button, 0.85, 0.64, 'gp:X', 60, 'ATTACK'),
-        _b(ControlKind.button, 0.95, 0.64, 'gp:B', 60, 'DODGE'),
-        _b(ControlKind.button, 0.90, 0.84, 'gp:A', 60, 'JUMP'),
-        // Traversal extras — keyboard keys you can rebind to your SM2 setup.
-        _b(ControlKind.button, 0.55, 0.86, 'key:C', 58, 'ZIP'),       // zip to point
-        _b(ControlKind.button, 0.80, 0.30, 'key:F', 58, 'WINGS'),// web wings / glide
-        // Web-shooter + gadget + focus (left side, near the move thumb).
-        _b(ControlKind.button, 0.06, 0.30, 'gp:RB', 56, 'WEB'),
-        _b(ControlKind.button, 0.14, 0.30, 'gp:Y', 56, 'GADGET'),
-        _b(ControlKind.button, 0.06, 0.52, 'gp:LB', 56, 'FOCUS'),
-        // Utility (top-center).
-        _b(ControlKind.button, 0.45, 0.12, 'gp:BACK', 44, 'MAP'),
-        _b(ControlKind.button, 0.55, 0.12, 'gp:START', 44, 'PAUSE'),
+        // ── SWING: the hero control ────────────────────────────────────────
+        // Hold = RT (web-swing fires). Drag while held = right-stick camera.
+        _b(ControlKind.swing, 0.70, 0.53, 'swing', 92),
+
+        // ── ABXY face buttons — to the right of SWING ─────────────────────
+        _b(ControlKind.button, 0.91, 0.28, 'gp:Y', 60, 'WINGS',  'wings'),  // △ web wings / yank
+        _b(ControlKind.button, 0.95, 0.50, 'gp:B', 60, 'DODGE',  'dodge'),  // ◯ dodge/evade
+        _b(ControlKind.button, 0.91, 0.72, 'gp:A', 60, 'JUMP',   'jump'),   // ✕ jump
+        _b(ControlKind.button, 0.84, 0.50, 'gp:X', 60, 'ATTACK', 'attack'), // □ melee attack
+
+        // ── Right shoulder — R1 gadget / web-shooter ──────────────────────
+        _b(ControlKind.button, 0.82, 0.24, 'gp:RB', 54, 'GADGET', 'gadget'),
+
+        // ── Traversal extras (bottom-center) ──────────────────────────────
+        _b(ControlKind.button, 0.60, 0.80, 'combo:zip',     58, 'ZIP',  'zip'),  // L2+R2 point launch
+        _b(ControlKind.button, 0.52, 0.86, 'gp:DPAD_DOWN',  52, 'HEAL', 'heal'), // D-pad down heal
+
+        // ── Left side: aim (L2) + ability (L1) ────────────────────────────
+        _b(ControlKind.trigger, 0.14, 0.16, 'trig:left', 58, 'AIM'),              // L2 web-shooter aim
+        _b(ControlKind.button,  0.06, 0.34, 'gp:LB',     56, 'ABILITY', 'ability'), // L1 suit power
+
+        // ── Center utility ────────────────────────────────────────────────
+        _b(ControlKind.button, 0.44, 0.11, 'gp:BACK',  44, '', 'map'),
+        _b(ControlKind.button, 0.56, 0.11, 'gp:START', 44, '', 'pause'),
       ],
     );
 

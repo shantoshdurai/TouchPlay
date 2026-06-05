@@ -1,10 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import '../services/websocket_service.dart';
-
-void _haptic(Future<void> Function() fn) {
-  if (WebSocketService.instance.sensitivity.vibration) fn();
-}
+import '../services/haptics.dart';
 
 const _neutralColor = Color(0x66FFFFFF); // Semi-transparent white border
 
@@ -55,7 +51,7 @@ class _ActionButtonState extends State<ActionButton>
     setState(() => _pressed = true);
     _scale.reverse();
     WebSocketService.instance.send({'type': 'button_press', 'button': widget.button});
-    _haptic(HapticFeedback.mediumImpact);
+    Haptics.instance.heavy();
   }
 
   void _up() {
@@ -63,7 +59,7 @@ class _ActionButtonState extends State<ActionButton>
     setState(() => _pressed = false);
     _scale.forward();
     WebSocketService.instance.send({'type': 'button_release', 'button': widget.button});
-    _haptic(HapticFeedback.selectionClick);
+    Haptics.instance.tick();
   }
 
   @override
@@ -139,7 +135,6 @@ class DPad extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final btnSize = size * 0.35;
-    final offset = size / 2 - btnSize / 2;
 
     return SizedBox(
       width: size,
@@ -205,7 +200,7 @@ class _DPadBtnState extends State<_DPadBtn> with SingleTickerProviderStateMixin 
     setState(() => _pressed = true);
     _scale.reverse();
     WebSocketService.instance.send({'type': 'button_press', 'button': widget.button});
-    _haptic(HapticFeedback.heavyImpact);
+    Haptics.instance.heavy();
   }
 
   void _up() {
@@ -213,7 +208,7 @@ class _DPadBtnState extends State<_DPadBtn> with SingleTickerProviderStateMixin 
     setState(() => _pressed = false);
     _scale.forward();
     WebSocketService.instance.send({'type': 'button_release', 'button': widget.button});
-    _haptic(HapticFeedback.selectionClick);
+    Haptics.instance.tick();
   }
 
   @override
@@ -272,14 +267,14 @@ class _CenterButtonState extends State<CenterButton> {
     if (_pressed) return;
     setState(() => _pressed = true);
     WebSocketService.instance.send({'type': 'button_press', 'button': widget.button});
-    _haptic(HapticFeedback.lightImpact);
+    Haptics.instance.light();
   }
 
   void _up() {
     if (!_pressed) return;
     setState(() => _pressed = false);
     WebSocketService.instance.send({'type': 'button_release', 'button': widget.button});
-    _haptic(HapticFeedback.selectionClick);
+    Haptics.instance.tick();
   }
 
   @override
@@ -329,14 +324,14 @@ class _GuideButtonState extends State<GuideButton> {
     if (_pressed) return;
     setState(() => _pressed = true);
     WebSocketService.instance.send({'type': 'button_press', 'button': 'GUIDE'});
-    _haptic(HapticFeedback.mediumImpact);
+    Haptics.instance.medium();
   }
 
   void _up() {
     if (!_pressed) return;
     setState(() => _pressed = false);
     WebSocketService.instance.send({'type': 'button_release', 'button': 'GUIDE'});
-    _haptic(HapticFeedback.selectionClick);
+    Haptics.instance.tick();
   }
 
   @override

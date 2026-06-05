@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import '../services/websocket_service.dart';
+import '../services/haptics.dart';
 
 const _neutralColor = Color(0x66FFFFFF);
 
@@ -52,7 +52,7 @@ class _TriggerBarState extends State<TriggerBar>
     setState(() => _pressed = true);
     _scale.reverse();
     WebSocketService.instance.send({'type': _msg, 'value': 1.0});
-    HapticFeedback.heavyImpact();
+    Haptics.instance.heavy();
   }
 
   void _up() {
@@ -60,7 +60,7 @@ class _TriggerBarState extends State<TriggerBar>
     setState(() => _pressed = false);
     _scale.forward();
     WebSocketService.instance.send({'type': _msg, 'value': 0.0});
-    HapticFeedback.selectionClick();
+    Haptics.instance.tick();
   }
 
   @override

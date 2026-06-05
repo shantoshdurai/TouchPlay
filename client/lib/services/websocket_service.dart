@@ -9,10 +9,14 @@ enum ConnectionState { connected, connecting, disconnected }
 
 const _port         = 8765;
 const _udpPort      = 8766;
-const _pingInterval = Duration(seconds: 1);   // 1s for live latency readout
-const _pongTimeout  = Duration(seconds: 5);
-const _reconnectDelay = Duration(seconds: 2);
+const _pingInterval = Duration(seconds: 2);   // 2s interval — enough for live readout, less noise
+const _pongTimeout  = Duration(seconds: 12);  // was 5s — tolerate a brief Wi-Fi stall
 const _maxQueue     = 10;
+
+// Reconnect back-off: start at 1 s, double each attempt up to a 16 s ceiling.
+// Fast on a quick blip, gentle on a sustained drop so we don't spam the network.
+const _reconnectBase = Duration(seconds: 1);
+const _reconnectMax  = Duration(seconds: 16);
 
 // Sensitivity defaults
 class SensitivitySettings {
@@ -20,7 +24,8 @@ class SensitivitySettings {
   double rightStickSensitivity;
   double deadZone;
   double mouseSensitivity;
-  bool   vibration;
+  bool   vibration;          // master on/off (kept in sync with strength > 0)
+  double vibrationStrength;  // 0..1 — scales motor amplitude (user-adjustable)
   double joyRadius;
   // Per-control size factors for the Forza racing HUD (1.0 = default size).
   double gasSize;
@@ -33,6 +38,7 @@ class SensitivitySettings {
     this.deadZone              = 0.08,
     this.mouseSensitivity      = 18.0,
     this.vibration             = true,
+    this.vibrationStrength     = 0.85,
     this.joyRadius             = 1.0,   // scale factor: 1.0 = same size as left stick
     this.gasSize               = 1.0,
     this.brakeSize             = 1.0,
@@ -68,6 +74,17 @@ class WebSocketService with WidgetsBindingObserver {
   String? _serverVersion;
   String? get serverVersion => _serverVersion;
 
+  // Local co-op: which player slot the server assigned this phone (1..maxPlayers),
+  // and whether the server turned us away because it's already full.
+  final _playerCtrl = StreamController<int?>.broadcast();
+  Stream<int?> get playerStream => _playerCtrl.stream;
+  int? _playerNumber;
+  int? get playerNumber => _playerNumber;
+  int? _maxPlayers;
+  int? get maxPlayers => _maxPlayers;
+  bool _serverFull = false;
+  bool get serverFull => _serverFull;
+
   // Sensitivity
   final sensitivity = SensitivitySettings();
 
@@ -90,9 +107,47 @@ class WebSocketService with WidgetsBindingObserver {
     WidgetsBinding.instance.addObserver(this);
     final prefs = await SharedPreferences.getInstance();
     _manualIp = prefs.getString('manual_ip');
+    await loadSensitivity();
     _running  = true;
     _startUdpDiscovery();
     _scheduleConnect(immediately: true);
+  }
+
+  // ── Settings persistence ─────────────────────────────────────────────────────
+  // Sensitivity / vibration used to live only in memory, so every setting reset
+  // to default on each app launch. Persist them so the player's tuning sticks.
+
+  static const _sKey = 'sensitivity_v1';
+
+  Future<void> loadSensitivity() async {
+    final prefs = await SharedPreferences.getInstance();
+    final s = sensitivity;
+    double d(String k, double v) => prefs.getDouble('${_sKey}_$k') ?? v;
+    s.stickSensitivity      = d('left',  s.stickSensitivity);
+    s.rightStickSensitivity = d('right', s.rightStickSensitivity);
+    s.deadZone              = d('dead',  s.deadZone);
+    s.mouseSensitivity      = d('mouse', s.mouseSensitivity);
+    s.vibration             = prefs.getBool('${_sKey}_vib') ?? s.vibration;
+    s.vibrationStrength     = d('vibstr', s.vibrationStrength);
+    s.joyRadius             = d('joy',   s.joyRadius);
+    s.gasSize               = d('gas',   s.gasSize);
+    s.brakeSize             = d('brake', s.brakeSize);
+    s.handbrakeSize         = d('hb',    s.handbrakeSize);
+  }
+
+  Future<void> saveSensitivity() async {
+    final prefs = await SharedPreferences.getInstance();
+    final s = sensitivity;
+    await prefs.setDouble('${_sKey}_left',  s.stickSensitivity);
+    await prefs.setDouble('${_sKey}_right', s.rightStickSensitivity);
+    await prefs.setDouble('${_sKey}_dead',  s.deadZone);
+    await prefs.setDouble('${_sKey}_mouse', s.mouseSensitivity);
+    await prefs.setBool  ('${_sKey}_vib',   s.vibration);
+    await prefs.setDouble('${_sKey}_vibstr',s.vibrationStrength);
+    await prefs.setDouble('${_sKey}_joy',   s.joyRadius);
+    await prefs.setDouble('${_sKey}_gas',   s.gasSize);
+    await prefs.setDouble('${_sKey}_brake', s.brakeSize);
+    await prefs.setDouble('${_sKey}_hb',    s.handbrakeSize);
   }
 
   @override
@@ -169,12 +224,13 @@ class WebSocketService with WidgetsBindingObserver {
   // ── Connection logic ────────────────────────────────────────────────────────
 
   bool _isConnecting = false;
-  int _connectionGen = 0;
+  int  _connectionGen = 0;
+  Duration _backOff = _reconnectBase; // grows on each failed attempt, resets on success
 
   void _scheduleConnect({bool immediately = false}) {
     _reconnectTimer?.cancel();
     _reconnectTimer = Timer(
-      immediately ? Duration.zero : _reconnectDelay,
+      immediately ? Duration.zero : _backOff,
       () => _tryConnect(silent: true),
     );
   }
@@ -192,6 +248,7 @@ class WebSocketService with WidgetsBindingObserver {
       if (gen != _connectionGen) return; // Aborted by newer connection attempt
       if (await _connect(ip, gen)) {
         if (gen != _connectionGen) return; // Aborted during await
+        _backOff = _reconnectBase; // reset back-off on success
         _isConnecting = false;
         return;
       }
@@ -200,6 +257,10 @@ class WebSocketService with WidgetsBindingObserver {
     if (gen != _connectionGen) return; // Aborted
     _setState(ConnectionState.disconnected);
     _isConnecting = false;
+    // Exponential back-off: double delay each failure, cap at max.
+    _backOff = Duration(milliseconds:
+        (_backOff.inMilliseconds * 2).clamp(
+            _reconnectBase.inMilliseconds, _reconnectMax.inMilliseconds));
     _scheduleConnect();
   }
 
@@ -249,6 +310,15 @@ class WebSocketService with WidgetsBindingObserver {
         }
       } else if (data['type'] == 'server_info') {
         _serverVersion = data['version'] as String?;
+        _serverFull    = false;
+        _playerNumber  = (data['player'] as num?)?.toInt();
+        _maxPlayers    = (data['maxPlayers'] as num?)?.toInt();
+        _playerCtrl.add(_playerNumber);
+      } else if (data['type'] == 'server_full') {
+        _serverFull   = true;
+        _maxPlayers   = (data['max'] as num?)?.toInt();
+        _playerNumber = null;
+        _playerCtrl.add(null);
       }
     } catch (_) {}
   }
@@ -306,5 +376,6 @@ class WebSocketService with WidgetsBindingObserver {
     _udpSocket?.close();
     _disconnect();
     _stateCtrl.close();
+    _playerCtrl.close();
   }
 }

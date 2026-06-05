@@ -1,18 +1,16 @@
-import 'dart:async';
+﻿import 'dart:async';
 import 'dart:math';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:sensors_plus/sensors_plus.dart';
 import '../services/websocket_service.dart';
+import '../services/haptics.dart';
 
-// ── Shared theme tokens (match the monochrome "Claude" controller design) ──────
+// â”€â”€ Shared theme tokens (match the monochrome "Claude" controller design) â”€â”€â”€â”€â”€â”€
 // Quiet at rest (so they don't pull the eye off the game), cyan on press.
 const _kAccent  = Color(0xFF00D4FF);
 const _kRest    = Color(0x66FFFFFF); // neutral border at rest
 const _kRestDim = Color(0x33FFFFFF); // even quieter (secondary controls)
 const _kFill    = Color(0x2200D4FF); // cyan glow fill on press
-
-bool get _vib => WebSocketService.instance.sensitivity.vibration;
 
 /// Steering value applies the same sensitivity + dead-zone as the analog sticks,
 /// so the in-app "Steering" sliders behave identically across wheel and pads.
@@ -29,12 +27,12 @@ void _sendSteer(double x) => WebSocketService.instance.send({
       'y': 0.0,
     });
 
-// ════════════════════════════════════════════════════════════════════════════
-//  STEERING — WHEEL (drag left / right, analog)
-// ════════════════════════════════════════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+//  STEERING â€” WHEEL (drag left / right, analog)
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 /// Fills its parent box and paints a steering wheel anchored bottom-left.
-/// Grab anywhere in the zone and drag horizontally — the wheel rotates and the
+/// Grab anywhere in the zone and drag horizontally â€” the wheel rotates and the
 /// left stick follows. Release to straighten. Uses a single captured pointer so
 /// it coexists with the pedals / buttons (independent fingers).
 class SteeringWheel extends StatefulWidget {
@@ -57,7 +55,7 @@ class _SteeringWheelState extends State<SteeringWheel> {
     if (_ptr != null) return;
     _ptr = e.pointer;
     _startX = e.localPosition.dx;
-    if (_vib) HapticFeedback.selectionClick();
+    Haptics.instance.tick();
   }
 
   void _move(PointerMoveEvent e) {
@@ -65,7 +63,7 @@ class _SteeringWheelState extends State<SteeringWheel> {
     final raw = ((e.localPosition.dx - _startX) / _range).clamp(-1.0, 1.0);
     setState(() {
       _value = _steerCurve(raw);
-      _angle = raw * (pi * 0.55); // up to ~100° of visual turn
+      _angle = raw * (pi * 0.55); // up to ~100Â° of visual turn
     });
     _sendSteer(_value);
   }
@@ -127,12 +125,12 @@ class _WheelPainter extends CustomPainter {
       ..style = PaintingStyle.stroke
       ..strokeWidth = r * 0.06
       ..strokeCap = StrokeCap.round;
-    canvas.drawLine(Offset(-r * 0.55, 0), Offset(r * 0.55, 0), spoke);   // L–R
+    canvas.drawLine(Offset(-r * 0.55, 0), Offset(r * 0.55, 0), spoke);   // Lâ€“R
     canvas.drawLine(const Offset(0, 0), Offset(0, r * 0.55), spoke);     // bottom
     canvas.drawCircle(Offset.zero, r * 0.16, Paint()..color = accent);   // hub
     // 12 o'clock marker so the turn is readable
     canvas.drawLine(Offset(0, -r * 0.55), Offset(0, -r * 0.86), Paint()
-      ..color = _kAccent.withOpacity(0.35 + 0.65 * value.abs())
+      ..color = _kAccent.withValues(alpha: 0.35 + 0.65 * value.abs())
       ..style = PaintingStyle.stroke
       ..strokeWidth = r * 0.07
       ..strokeCap = StrokeCap.round);
@@ -144,9 +142,9 @@ class _WheelPainter extends CustomPainter {
       o.angle != angle || o.value != value || o.diameter != diameter;
 }
 
-// ════════════════════════════════════════════════════════════════════════════
-//  STEERING — L / R PADS (digital full-lock)
-// ════════════════════════════════════════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+//  STEERING â€” L / R PADS (digital full-lock)
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 class SteeringPad extends StatefulWidget {
   const SteeringPad({super.key, required this.left, this.size = 96});
@@ -165,14 +163,14 @@ class _SteeringPadState extends State<SteeringPad> {
     if (_ptr != null) return;
     setState(() => _ptr = e.pointer);
     _sendSteer(_steerCurve(widget.left ? -1.0 : 1.0));
-    if (_vib) HapticFeedback.mediumImpact();
+    Haptics.instance.medium();
   }
 
   void _release(PointerEvent e) {
     if (e.pointer != _ptr) return;
     setState(() => _ptr = null);
     _sendSteer(0.0);
-    if (_vib) HapticFeedback.selectionClick();
+    Haptics.instance.tick();
   }
 
   @override
@@ -199,9 +197,9 @@ class _SteeringPadState extends State<SteeringPad> {
       );
 }
 
-// ════════════════════════════════════════════════════════════════════════════
-//  PEDALS — hold = full (gas → RT, brake → LT)
-// ════════════════════════════════════════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+//  PEDALS â€” hold = full (gas â†’ RT, brake â†’ LT)
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 class RacePedal extends StatefulWidget {
   const RacePedal({
@@ -213,7 +211,7 @@ class RacePedal extends StatefulWidget {
     required this.height,
   });
 
-  final bool gas; // true → right_trigger (RT), false → left_trigger (LT)
+  final bool gas; // true â†’ right_trigger (RT), false â†’ left_trigger (LT)
   final String label;
   final IconData icon;
   final double width, height;
@@ -231,14 +229,14 @@ class _RacePedalState extends State<RacePedal> {
     if (_ptr != null) return;
     setState(() => _ptr = e.pointer);
     WebSocketService.instance.send({'type': _msg, 'value': 1.0});
-    if (_vib) HapticFeedback.heavyImpact();
+    Haptics.instance.heavy();
   }
 
   void _release(PointerEvent e) {
     if (e.pointer != _ptr) return;
     setState(() => _ptr = null);
     WebSocketService.instance.send({'type': _msg, 'value': 0.0});
-    if (_vib) HapticFeedback.selectionClick();
+    Haptics.instance.tick();
   }
 
   @override
@@ -296,9 +294,9 @@ class _RacePedalState extends State<RacePedal> {
   }
 }
 
-// ════════════════════════════════════════════════════════════════════════════
-//  RACE BUTTON — momentary gamepad button with icon (+ optional label)
-// ════════════════════════════════════════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+//  RACE BUTTON â€” momentary gamepad button with icon (+ optional label)
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 class RaceButton extends StatefulWidget {
   const RaceButton({
@@ -328,14 +326,14 @@ class _RaceButtonState extends State<RaceButton> {
     if (_ptr != null) return;
     setState(() => _ptr = e.pointer);
     WebSocketService.instance.send({'type': 'button_press', 'button': widget.button});
-    if (_vib) HapticFeedback.mediumImpact();
+    Haptics.instance.medium();
   }
 
   void _release(PointerEvent e) {
     if (e.pointer != _ptr) return;
     setState(() => _ptr = null);
     WebSocketService.instance.send({'type': 'button_release', 'button': widget.button});
-    if (_vib) HapticFeedback.selectionClick();
+    Haptics.instance.tick();
   }
 
   @override
@@ -382,11 +380,11 @@ class _RaceButtonState extends State<RaceButton> {
   }
 }
 
-// ════════════════════════════════════════════════════════════════════════════
-//  STEERING — SLIDER (center knob, drag left / right, springs back to center)
-// ════════════════════════════════════════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+//  STEERING â€” SLIDER (center knob, drag left / right, springs back to center)
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
-/// A horizontal track with a knob. Rest your thumb on it and slide left/right —
+/// A horizontal track with a knob. Rest your thumb on it and slide left/right â€”
 /// analog and continuous, hands stay put. Releases back to center so the car
 /// straightens. The whole zone is the touch area so your thumb can roam.
 class SteeringSlider extends StatefulWidget {
@@ -407,7 +405,7 @@ class _SteeringSliderState extends State<SteeringSlider> {
   void _update(double localX) {
     final raw = ((localX - _zoneW / 2) / _half).clamp(-1.0, 1.0);
     // Muscle-memory tick when the knob passes dead-center (strong + felt).
-    if (_vib && _raw.abs() > 0.07 && raw.abs() <= 0.07) HapticFeedback.mediumImpact();
+    if (_raw.abs() > 0.07 && raw.abs() <= 0.07) Haptics.instance.medium();
     setState(() { _raw = raw; _value = _steerCurve(raw); });
     _sendSteer(_value);
   }
@@ -416,7 +414,7 @@ class _SteeringSliderState extends State<SteeringSlider> {
     if (_ptr != null) return;
     _ptr = e.pointer;
     _update(e.localPosition.dx);
-    if (_vib) HapticFeedback.selectionClick();
+    Haptics.instance.tick();
   }
 
   void _move(PointerMoveEvent e) { if (e.pointer == _ptr) _update(e.localPosition.dx); }
@@ -424,7 +422,7 @@ class _SteeringSliderState extends State<SteeringSlider> {
   void _up(PointerEvent e) {
     if (e.pointer != _ptr) return;
     _ptr = null;
-    if (_vib && _raw.abs() > 0.07) HapticFeedback.mediumImpact(); // tick as it re-centers
+    if (_raw.abs() > 0.07) Haptics.instance.medium(); // tick as it re-centers
     setState(() { _raw = 0; _value = 0; });
     _sendSteer(0.0);
   }
@@ -487,14 +485,14 @@ class _SliderPainter extends CustomPainter {
   bool shouldRepaint(_SliderPainter o) => o.raw != raw || o.value != value || o.width != width;
 }
 
-// ════════════════════════════════════════════════════════════════════════════
-//  STEERING — TILT (phone accelerometer)
-// ════════════════════════════════════════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+//  STEERING â€” TILT (phone accelerometer)
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 /// Tilt the phone like a wheel to steer. Reads the accelerometer, subtracts a
 /// recenter baseline, applies sensitivity + dead-zone. Always active while in
 /// tilt mode. Shows a level bar + a Recenter button. If the axis/sign ever feels
-/// wrong on a given phone, flip [_axis]/[_sign] — that's the only tuning knob.
+/// wrong on a given phone, flip [_axis]/[_sign] â€” that's the only tuning knob.
 class SteeringTilt extends StatefulWidget {
   const SteeringTilt({super.key, this.width = 240});
   final double width; // level-bar width (resizable when placed in a custom layout)
@@ -511,7 +509,7 @@ class _SteeringTiltState extends State<SteeringTilt> {
   static const double _gain = 0.9; // higher = more steering per degree of tilt
   static const double _sign = 1.0; // flip to -1.0 if reversed
 
-  double _axisOf(AccelerometerEvent e) => e.y; // landscape roll ≈ Y on most phones
+  double _axisOf(AccelerometerEvent e) => e.y; // landscape roll â‰ˆ Y on most phones
 
   @override
   void initState() {
@@ -536,7 +534,7 @@ class _SteeringTiltState extends State<SteeringTilt> {
     _baseline = _reading;
     _value = 0;
     _sendSteer(0.0);
-    if (_vib) HapticFeedback.mediumImpact();
+    Haptics.instance.medium();
     setState(() {});
   }
 

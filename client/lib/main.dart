@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 import 'screens/controller_screen.dart';
+import 'services/haptics.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -12,6 +13,9 @@ void main() async {
   ]);
 
   WakelockPlus.enable();
+
+  // Probe the vibrator once up front so the first buzz isn't delayed.
+  await Haptics.instance.init();
 
   runApp(const FH6ControllerApp());
 }
