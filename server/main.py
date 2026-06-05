@@ -10,9 +10,9 @@ from gamepad import (
     mouse_down, mouse_up, key_down, key_up, release_all_inputs,
 )
 from qr_gen import get_best_ip
-from ui import ServerUI, print_startup_splash
+from ui import ServerUI
 
-VERSION      = "1.2.0"
+VERSION      = "1.0.0"
 PORT         = 8765
 UDP_PORT     = 8766
 BATCH_MS     = 0.008   # 8 ms gamepad flush
@@ -233,9 +233,6 @@ async def main():
     ip  = get_best_ip()
     fw  = ensure_firewall_rule()
 
-    # Show a static splash BEFORE entering Live mode (so it isn't overwritten).
-    print_startup_splash(ip, PORT, VERSION)
-
     ui = ServerUI(ip=ip, version=VERSION, max_players=MAX_PLAYERS)
     ui.set_firewall(fw)
     _ui = ui
@@ -269,9 +266,33 @@ async def main():
                 pass
 
 
+def _force_utf8_console() -> None:
+    """Make the console UTF-8 + VT-capable so the dashboard's box/▣ glyphs render
+    on any Windows console (not just Windows Terminal). Without this, a default
+    cp1252 console crashes on characters like ● ◔ ·."""
+    try:
+        import ctypes
+        k32 = ctypes.windll.kernel32
+        k32.SetConsoleOutputCP(65001)
+        k32.SetConsoleCP(65001)
+        # Enable virtual-terminal processing (ANSI colours) on the output handle.
+        h = k32.GetStdHandle(-11)
+        mode = ctypes.c_uint()
+        if k32.GetConsoleMode(h, ctypes.byref(mode)):
+            k32.SetConsoleMode(h, mode.value | 0x0004)
+    except Exception:
+        pass
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")
+        sys.stderr.reconfigure(encoding="utf-8")
+    except Exception:
+        pass
+
+
 if __name__ == "__main__":
     import sys
     sys.tracebacklimit = 0
+    _force_utf8_console()
     try:
         asyncio.run(main())
     except (KeyboardInterrupt, SystemExit):
