@@ -4,45 +4,47 @@ import platform
 import socket
 import subprocess
 import websockets
+from datetime import datetime
 from gamepad import (
     GamepadController, mouse_move, mouse_click,
     mouse_down, mouse_up, key_down, key_up, release_all_inputs,
 )
-from qr_gen import generate_qr
+from qr_gen import get_best_ip
+from ui import ServerUI, print_startup_splash
 
-VERSION   = "1.2.0"       # bumped to the version the app handshakes against
-PORT      = 8765
-UDP_PORT  = 8766          # discovery broadcast port
-BATCH_MS  = 0.008         # 8 ms gamepad flush
-
-# ── Local co-op: one virtual Xbox pad per phone ──────────────────────────────
-# XInput allows up to 4 controllers, so up to 4 phones can play at once — each
-# gets its own pad (Player 1-4). Sessions are keyed by the phone's IP and held
-# briefly across drops so a flaky Wi-Fi blip doesn't unplug the pad mid-game.
-MAX_PLAYERS   = 4
+VERSION      = "1.2.0"
+PORT         = 8765
+UDP_PORT     = 8766
+BATCH_MS     = 0.008   # 8 ms gamepad flush
+MAX_PLAYERS  = 4
 GRACE_SECONDS = 20
 
+# ── Per-phone session ─────────────────────────────────────────────────────────
+
 class Session:
-    __slots__ = ("player", "gamepad", "dirty", "connected")
-    def __init__(self, player: int):
-        self.player    = player
-        self.gamepad   = GamepadController()
-        self.dirty     = False
-        self.connected = True
+    __slots__ = ("player", "gamepad", "dirty", "connected", "ip", "connected_at")
 
-_sessions      = {}   # client_ip -> Session
-_cleanup_tasks = {}   # client_ip -> asyncio.Task (pending grace cleanup)
+    def __init__(self, player: int, ip: str) -> None:
+        self.player       = player
+        self.ip           = ip
+        self.gamepad      = GamepadController()
+        self.dirty        = False
+        self.connected    = True
+        self.connected_at = datetime.now()
+
+_sessions:      dict[str, Session] = {}   # client_ip → Session
+_cleanup_tasks: dict[str, asyncio.Task]  = {}
+
+# Global UI reference — set in main() before the server starts.
+_ui: ServerUI | None = None
 
 
-# ── Windows Firewall auto-allow ──────────────────────────────────────────────
-# The #1 reason people "can't connect" is that Windows blocks the inbound port
-# on the Private/Public profile. We add the rule ourselves (needs admin once);
-# if we can't, we print plain-language guidance instead of failing silently.
+# ── Windows Firewall ──────────────────────────────────────────────────────────
 
-def ensure_firewall_rule() -> str | None:
+def ensure_firewall_rule() -> bool:
     if platform.system() != "Windows":
-        return None
-    flags = 0x08000000  # CREATE_NO_WINDOW — no console flash
+        return True
+    flags = 0x08000000
     ok = True
     for name, proto, port in [
         ("TouchPlay Server TCP", "TCP", PORT),
@@ -53,7 +55,7 @@ def ensure_firewall_rule() -> str | None:
                 ["netsh", "advfirewall", "firewall", "show", "rule", f"name={name}"],
                 capture_output=True, text=True, creationflags=flags)
             if chk.returncode == 0 and "No rules match" not in chk.stdout:
-                continue  # already allowed
+                continue
             res = subprocess.run(
                 ["netsh", "advfirewall", "firewall", "add", "rule",
                  f"name={name}", "dir=in", "action=allow",
@@ -63,23 +65,23 @@ def ensure_firewall_rule() -> str | None:
                 ok = False
         except Exception:
             ok = False
-    return "ok" if ok else "failed"
+    return ok
 
 
-# ── UDP auto-discovery broadcast ─────────────────────────────────────────────
+# ── UDP auto-discovery broadcast ──────────────────────────────────────────────
 
 async def udp_broadcast(ip: str):
-    """Announce the server every 2 s so the phone finds it automatically.
-    We hit the global, limited and subnet-directed broadcast addresses because
-    some networks (corporate / hotspot) silently drop 255.255.255.255."""
-    msg = json.dumps({"type": "server_hello", "ip": ip, "port": PORT, "version": VERSION}).encode()
+    msg = json.dumps({
+        "type": "server_hello", "ip": ip,
+        "port": PORT, "version": VERSION,
+    }).encode()
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
     sock.setblocking(False)
     parts = ip.split(".")
     targets = ["<broadcast>", "255.255.255.255"]
     if len(parts) == 4:
-        targets.append(".".join(parts[:3] + ["255"]))   # e.g. 10.107.204.255
+        targets.append(".".join(parts[:3] + ["255"]))
     try:
         while True:
             for t in targets:
@@ -110,7 +112,7 @@ async def flush_loop():
 
 # ── Message handler ───────────────────────────────────────────────────────────
 
-def handle_message(data: dict, sess: "Session") -> str | None:
+def handle_message(data: dict, sess: Session) -> str | None:
     t = data.get("type")
     g = sess.gamepad
 
@@ -126,8 +128,6 @@ def handle_message(data: dict, sess: "Session") -> str | None:
         g.set_left_trigger(data["value"]); sess.dirty = True
     elif t == "right_trigger":
         g.set_right_trigger(data["value"]); sess.dirty = True
-    # Mouse + keyboard drive the single PC desktop, so they stay global (a co-op
-    # title is played on gamepads; KB/M is for the solo keyboard-mapped layouts).
     elif t == "mouse_move":
         mouse_move(int(data.get("dx", 0)), int(data.get("dy", 0)))
     elif t == "mouse_click":
@@ -141,8 +141,8 @@ def handle_message(data: dict, sess: "Session") -> str | None:
     elif t == "key_up":
         key_up(data.get("key", ""))
     elif t == "reset":
-        g.reset()                       # release this player's pad (app backgrounded)
-        if len(_sessions) <= 1:         # only the solo player → safe to free KB/M too
+        g.reset()
+        if len(_sessions) <= 1:
             release_all_inputs()
     elif t == "ping":
         return json.dumps({"type": "pong"})
@@ -150,7 +150,6 @@ def handle_message(data: dict, sess: "Session") -> str | None:
 
 
 def _assign_player() -> int | None:
-    """Lowest free player slot 1..MAX_PLAYERS, or None when the server is full."""
     used = {s.player for s in _sessions.values()}
     for i in range(1, MAX_PLAYERS + 1):
         if i not in used:
@@ -158,17 +157,16 @@ def _assign_player() -> int | None:
     return None
 
 
-async def _grace_cleanup(ip: str, sess: "Session"):
-    """After a drop, hold the pad for a grace window; free it only if the phone
-    hasn't reconnected by then. Keeps the game from seeing an unplug on a blip."""
+async def _grace_cleanup(ip: str, sess: Session):
     try:
         await asyncio.sleep(GRACE_SECONDS)
     except asyncio.CancelledError:
         return
     if _sessions.get(ip) is sess and not sess.connected:
         sess.gamepad.reset()
-        _sessions.pop(ip, None)         # drop the ref → ViGEm unplugs the pad
-        print(f"[-] Player {sess.player} released ({ip}).")
+        _sessions.pop(ip, None)
+        if _ui:
+            _ui.player_release(sess.player)
     _cleanup_tasks.pop(ip, None)
 
 
@@ -177,7 +175,6 @@ async def _grace_cleanup(ip: str, sess: "Session"):
 async def handler(websocket):
     client_ip = websocket.remote_address[0]
 
-    # Reconnecting within the grace window? Cancel the pending free + reuse the pad.
     task = _cleanup_tasks.pop(client_ip, None)
     if task:
         task.cancel()
@@ -187,18 +184,21 @@ async def handler(websocket):
         player = _assign_player()
         if player is None:
             await websocket.send(json.dumps({"type": "server_full", "max": MAX_PLAYERS}))
-            print(f"[!] Rejected {client_ip}: server full ({MAX_PLAYERS} players).")
+            if _ui:
+                _ui.player_rejected(client_ip, MAX_PLAYERS)
             return
-        sess = Session(player)
+        sess = Session(player, client_ip)
         _sessions[client_ip] = sess
-        print(f"\n[+] Player {player} connected! ({client_ip})")
+        if _ui:
+            _ui.player_connect(player, client_ip)
     else:
         sess.connected = True
-        print(f"\n[+] Player {sess.player} reconnected. ({client_ip})")
+        sess.connected_at = datetime.now()
+        if _ui:
+            _ui.player_reconnect(sess.player, client_ip)
 
-    sess.gamepad.reset()                  # clean slate — release anything stuck
+    sess.gamepad.reset()
     try:
-        # Tell the app its player slot + version (handshake on the client).
         await websocket.send(json.dumps({
             "type": "server_info", "version": VERSION,
             "player": sess.player, "maxPlayers": MAX_PLAYERS,
@@ -217,52 +217,64 @@ async def handler(websocket):
         pass
     finally:
         sess.connected = False
-        sess.gamepad.reset()              # never leave an input stuck
-        # Hold the slot briefly so a flaky link doesn't unplug the pad mid-game.
-        _cleanup_tasks[client_ip] = asyncio.create_task(_grace_cleanup(client_ip, sess))
-        print(f"[-] Player {sess.player} dropped — holding {GRACE_SECONDS}s. ({client_ip})")
+        sess.gamepad.reset()
+        if _ui:
+            _ui.player_drop(sess.player, GRACE_SECONDS)
+        _cleanup_tasks[client_ip] = asyncio.create_task(
+            _grace_cleanup(client_ip, sess)
+        )
 
 
 # ── Entry point ───────────────────────────────────────────────────────────────
 
 async def main():
-    ip = generate_qr(PORT)
+    global _ui
 
-    fw = ensure_firewall_rule()
-    if fw == "ok":
-        print("  [OK] Windows Firewall allows the server.")
-    elif fw == "failed":
-        print("  [!] Couldn't auto-allow the firewall. Run this once as admin,")
-        print("      or allow 'python'/'TouchPlay' for Private + Public networks.")
+    ip  = get_best_ip()
+    fw  = ensure_firewall_rule()
 
-    print(f"  Local co-op ready — up to {MAX_PLAYERS} phones (Players 1-{MAX_PLAYERS}).")
-    print("  Waiting for phone...\n")
+    # Show a static splash BEFORE entering Live mode (so it isn't overwritten).
+    print_startup_splash(ip, PORT, VERSION)
 
-    bg = [asyncio.create_task(flush_loop()), asyncio.create_task(udp_broadcast(ip))]
-    try:
-        async with websockets.serve(handler, "0.0.0.0", PORT):
-            await asyncio.Future()          # run until cancelled (Ctrl+C)
-    except (asyncio.CancelledError, KeyboardInterrupt):
-        pass
-    finally:
-        # Cancel background tasks cleanly so there's no "Task was destroyed" noise.
-        for t in bg:
-            t.cancel()
-        await asyncio.gather(*bg, return_exceptions=True)
+    ui = ServerUI(ip=ip, version=VERSION, max_players=MAX_PLAYERS)
+    ui.set_firewall(fw)
+    _ui = ui
+
+    if not fw:
+        ui.log("[yellow]⚠ Firewall rule missing — run as Administrator once[/]")
+
+    ui.log(f"Server live · co-op ready · up to [bold]{MAX_PLAYERS}[/] players")
+
+    bg: list[asyncio.Task] = []
+    with ui:
+        bg = [
+            asyncio.create_task(flush_loop()),
+            asyncio.create_task(udp_broadcast(ip)),
+            asyncio.create_task(ui.refresh_loop()),
+        ]
         try:
-            for s in list(_sessions.values()):
-                s.gamepad.reset()
-            release_all_inputs()
-        except Exception:
+            async with websockets.serve(handler, "0.0.0.0", PORT):
+                await asyncio.Future()
+        except (asyncio.CancelledError, KeyboardInterrupt):
             pass
+        finally:
+            for t in bg:
+                t.cancel()
+            await asyncio.gather(*bg, return_exceptions=True)
+            try:
+                for s in list(_sessions.values()):
+                    s.gamepad.reset()
+                release_all_inputs()
+            except Exception:
+                pass
 
 
 if __name__ == "__main__":
     import sys
-    sys.tracebacklimit = 0   # no ugly tracebacks on Ctrl+C
+    sys.tracebacklimit = 0
     try:
         asyncio.run(main())
     except (KeyboardInterrupt, SystemExit):
-        print("\n[OK] Server stopped cleanly.")
+        pass
     except Exception as e:
         print(f"\n[ERROR] {e}")

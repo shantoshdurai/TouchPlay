@@ -32,17 +32,5 @@ def get_best_ip() -> str:
 
 
 def generate_qr(port: int = 8765) -> str:
-    ip  = get_best_ip()
-    W   = 42
-    ln  = "─" * W
-
-    print(f"\n  ┌{ln}┐")
-    print(f"  │{'SERVER READY':^{W}}│")
-    print(f"  ├{ln}┤")
-    print(f"  │ {'IP    :  ' + ip:<{W-1}}│")
-    print(f"  │ {'Port  :  ' + str(port):<{W-1}}│")
-    print(f"  ├{ln}┤")
-    print(f"  │ {'Open the app — it auto-connects.':<{W-1}}│")
-    print(f"  └{ln}┘\n")
-
-    return ip
+    """Legacy wrapper — still usable but main.py now calls get_best_ip() directly."""
+    return get_best_ip()

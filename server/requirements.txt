@@ -1,2 +1,5 @@
 vgamepad
 websockets
+rich
+pyfiglet
+qrcode[pil]
