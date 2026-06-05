@@ -22,7 +22,8 @@ exit /b
 $ErrorActionPreference = 'Stop'
 $ScriptDir = Split-Path -Parent $MyInvocation.PSCommandPath
 if (-not $ScriptDir) { $ScriptDir = (Get-Location).Path }
-$ExePath = Join-Path $ScriptDir "TouchPlay-Server.exe"
+$BatPath = Join-Path $ScriptDir "TouchPlay-Server.bat"
+$MainPyPath = Join-Path $ScriptDir "server\main.py"
 
 function Banner {
     Clear-Host
@@ -54,31 +55,25 @@ function Fail($m) {
 
 Banner
 
-# Check exe exists
-if (-not (Test-Path $ExePath)) {
-    Fail "TouchPlay-Server.exe not found.`n  Make sure it's in the same folder as this setup file."
+if (-not (Test-Path $BatPath)) {
+    Fail "TouchPlay-Server.bat not found.`n  Make sure it's in the same folder as this setup file."
+}
+if (-not (Test-Path $MainPyPath)) {
+    Fail "server\main.py not found.`n  Make sure the 'server' folder is present."
 }
 
-# ── Strip SmartScreen block (Mark of the Web) ─────────────────────────────────
-# Windows tags files downloaded from the internet with a Zone.Identifier stream.
-# When that tag is present, SmartScreen shows the "Windows protected your PC"
-# blue-screen warning. We unblock the exe here (admin context, before first run)
-# so the user never sees it. Same as right-click → Properties → Unblock.
-Write-Host "  [0/3] Removing SmartScreen block..." -ForegroundColor White
+# ── Check Python ─────────────────────────────────────────────────────────────
+Write-Host "  [1/4] Checking Python..." -ForegroundColor White
 try {
-    Unblock-File -Path $ExePath -ErrorAction Stop
-    # Also unblock this bat and any other files in the folder
-    Get-ChildItem $ScriptDir -File | ForEach-Object {
-        Unblock-File -Path $_.FullName -ErrorAction SilentlyContinue
-    }
-    OK "SmartScreen block removed — exe will launch without warning"
+    $pyVersion = & python --version 2>&1
+    if ($LASTEXITCODE -ne 0) { throw "Python not found" }
+    OK "Python is installed: $pyVersion"
 } catch {
-    Warn "Could not remove SmartScreen block: $_"
-    Warn "If Windows blocks the exe, right-click it → Properties → Unblock"
+    Fail "Python is not installed or not in PATH.`n  Please install Python 3.10+ from python.org and try again."
 }
 
 # ── ViGEm Bus Driver ──────────────────────────────────────────────────────────
-Write-Host "  [1/3] ViGEm gamepad driver" -ForegroundColor White
+Write-Host "`n  [2/4] ViGEm gamepad driver" -ForegroundColor White
 $vigEmOk = $false
 try {
     $svc = Get-Service -Name ViGEmBus -ErrorAction SilentlyContinue
@@ -134,8 +129,22 @@ if ($vigEmOk) {
     }
 }
 
+# ── Python Dependencies ───────────────────────────────────────────────────────
+Write-Host "`n  [3/4] Python Dependencies" -ForegroundColor White
+try {
+    Write-Host "        Installing packages (vgamepad, websockets, rich)..." -ForegroundColor DarkGray
+    $pipProc = Start-Process python -ArgumentList "-m pip install -r `"$ScriptDir\server\requirements.txt`"" -Wait -NoNewWindow -PassThru
+    if ($pipProc.ExitCode -eq 0) {
+        OK "Dependencies installed successfully"
+    } else {
+        Warn "pip install returned an error. Check if requirements are met."
+    }
+} catch {
+    Warn "Failed to run pip install: $_"
+}
+
 # ── Firewall rules ────────────────────────────────────────────────────────────
-Write-Host "`n  [2/3] Firewall rules" -ForegroundColor White
+Write-Host "`n  [4/4] Firewall rules" -ForegroundColor White
 foreach ($r in @(
     @{n="TouchPlay TCP"; p="TCP"; port=8765},
     @{n="TouchPlay UDP"; p="UDP"; port=8766}
@@ -149,11 +158,11 @@ foreach ($r in @(
 }
 
 # ── Desktop shortcut ──────────────────────────────────────────────────────────
-Write-Host "`n  [3/3] Desktop shortcut" -ForegroundColor White
+Write-Host "`n  [*] Desktop shortcut" -ForegroundColor White
 try {
     $lnk = (New-Object -ComObject WScript.Shell).CreateShortcut(
         "$([Environment]::GetFolderPath('Desktop'))\TouchPlay Server.lnk")
-    $lnk.TargetPath = $ExePath
+    $lnk.TargetPath = $BatPath
     $lnk.WorkingDirectory = $ScriptDir
     $lnk.Description = "TouchPlay — Start Controller Server"
     $lnk.Save()
@@ -169,5 +178,5 @@ Write-Host ""
 $ans = Read-Host "  Launch TouchPlay Server now? (Y/N)"
 if ($ans -match '^[yY]') {
     Write-Host "  Starting server..." -ForegroundColor Cyan
-    Start-Process $ExePath -WorkingDirectory $ScriptDir
+    Start-Process $BatPath -WorkingDirectory $ScriptDir
 }
