@@ -59,6 +59,24 @@ if (-not (Test-Path $ExePath)) {
     Fail "TouchPlay-Server.exe not found.`n  Make sure it's in the same folder as this setup file."
 }
 
+# ── Strip SmartScreen block (Mark of the Web) ─────────────────────────────────
+# Windows tags files downloaded from the internet with a Zone.Identifier stream.
+# When that tag is present, SmartScreen shows the "Windows protected your PC"
+# blue-screen warning. We unblock the exe here (admin context, before first run)
+# so the user never sees it. Same as right-click → Properties → Unblock.
+Write-Host "  [0/3] Removing SmartScreen block..." -ForegroundColor White
+try {
+    Unblock-File -Path $ExePath -ErrorAction Stop
+    # Also unblock this bat and any other files in the folder
+    Get-ChildItem $ScriptDir -File | ForEach-Object {
+        Unblock-File -Path $_.FullName -ErrorAction SilentlyContinue
+    }
+    OK "SmartScreen block removed — exe will launch without warning"
+} catch {
+    Warn "Could not remove SmartScreen block: $_"
+    Warn "If Windows blocks the exe, right-click it → Properties → Unblock"
+}
+
 # ── ViGEm Bus Driver ──────────────────────────────────────────────────────────
 Write-Host "  [1/3] ViGEm gamepad driver" -ForegroundColor White
 $vigEmOk = $false
