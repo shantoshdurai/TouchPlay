@@ -1,4 +1,4 @@
-﻿import 'dart:math';
+import 'dart:math';
 import 'package:flutter/material.dart';
 import '../games/custom_layout.dart';
 import '../services/websocket_service.dart';
@@ -17,7 +17,8 @@ const _kFill    = Color(0x2200D4FF);
 /// label (matches the built-in HUD). Pure-text buttons keep the label inside.
 bool _buttonHasCaption(ControlItem i) =>
     i.kind == ControlKind.button &&
-    i.icon.isNotEmpty && kIconRegistry.containsKey(i.icon) && i.label.isNotEmpty;
+    (i.icon.startsWith('asset:') || (i.icon.isNotEmpty && kIconRegistry.containsKey(i.icon))) &&
+    i.label.isNotEmpty;
 
 /// Footprint of a control (most are square; mouse pad is wide, pedal is tall).
 Size controlFootprint(ControlItem i) {
@@ -138,7 +139,8 @@ class _CustomButtonState extends State<_CustomButton> {
   @override
   Widget build(BuildContext context) {
     final item = widget.item;
-    final iconData = item.icon.isNotEmpty ? kIconRegistry[item.icon] : null;
+    final isAsset = item.icon.startsWith('asset:');
+    final iconData = !isAsset && item.icon.isNotEmpty ? kIconRegistry[item.icon] : null;
 
     final circle = AnimatedContainer(
       duration: const Duration(milliseconds: 60),
@@ -150,13 +152,15 @@ class _CustomButtonState extends State<_CustomButton> {
         border: Border.all(color: _down ? _kAccent : _kRest, width: 1.5),
       ),
       alignment: Alignment.center,
-      child: iconData != null
-          ? Icon(iconData, color: Colors.white, size: item.size * 0.46)
-          : _label(item),
+      child: isAsset
+          ? Image.asset('assets/icons/${item.icon.substring(6)}.png', color: Colors.white, width: item.size * 0.46)
+          : iconData != null
+              ? Icon(iconData, color: Colors.white, size: item.size * 0.46)
+              : _label(item),
     );
 
     // Icon + label â†’ circle with a caption underneath (built-in HUD look).
-    final child = (iconData != null && item.label.isNotEmpty)
+    final child = ((iconData != null || isAsset) && item.label.isNotEmpty)
         ? Column(mainAxisSize: MainAxisSize.min, children: [
             circle,
             const SizedBox(height: 4),

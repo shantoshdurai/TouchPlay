@@ -53,12 +53,20 @@ const kSpidermanProfile = GameProfile(
   icon: Icons.filter_tilt_shift,
 );
 
+const kOvercookedProfile = GameProfile(
+  id: 'overcooked',
+  name: 'Overcooked!',
+  tagline: 'Chop · cook · serve',
+  icon: Icons.restaurant,
+);
+
 /// Every card shown in the picker, in order. Coming-soon cards advertise that
 /// more per-game layouts can be dropped in later.
 const kGameProfiles = <GameProfile>[
   kStandardProfile,
   kForzaProfile,
   kSpidermanProfile,
+  kOvercookedProfile,
   GameProfile(
     id: 'nfs',
     name: 'Need for Speed',

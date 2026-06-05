@@ -1,4 +1,4 @@
-﻿import 'dart:async';
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -159,6 +159,8 @@ class _ControllerScreenState extends State<ControllerScreen> {
       setState(() { _showGames = false; _showForzaEditChooser = true; });
     } else if (id == 'spiderman') {
       await _openEditor(cloneSpiderman());
+    } else if (id == 'overcooked') {
+      await _openEditor(cloneOvercooked());
     }
   }
 
@@ -195,6 +197,7 @@ class _ControllerScreenState extends State<ControllerScreen> {
     final w = size.width;
     final isForza  = _profileId == 'forza';
     final isSpider = _profileId == 'spiderman';
+    final isOvercooked = _profileId == 'overcooked';
     final custom   = _activeCustom;
     final disp     = profileById(_profileId);
 
@@ -213,6 +216,8 @@ class _ControllerScreenState extends State<ControllerScreen> {
               ? _customChildren(custom, w, h)
               : isSpider
                   ? _spidermanChildren(w, h)
+                  : isOvercooked
+                      ? _overcookedChildren(w, h)
                   : isForza
                       ? _forzaChildren(w, h)
                       : _standardChildren(w, h)),
@@ -266,7 +271,7 @@ class _ControllerScreenState extends State<ControllerScreen> {
               onMore: () => setState(() { _showGamesMenu = false; _showGames = true; }),
               onEditCurrent: () {
                 setState(() => _showGamesMenu = false);
-                if (_profileId == 'standard' || _profileId == 'forza' || _profileId == 'spiderman') {
+                if (_profileId == 'standard' || _profileId == 'forza' || _profileId == 'spiderman' || _profileId == 'overcooked') {
                   _customizePreset(_profileId);
                 } else {
                   final c = _activeCustom;
@@ -498,6 +503,10 @@ class _ControllerScreenState extends State<ControllerScreen> {
   CustomLayout? _spidermanLayout;
   List<Widget> _spidermanChildren(double w, double h) =>
       _customChildren(_spidermanLayout ??= cloneSpiderman(), w, h);
+
+  CustomLayout? _overcookedLayout;
+  List<Widget> _overcookedChildren(double w, double h) =>
+      _customChildren(_overcookedLayout ??= cloneOvercooked(), w, h);
 
   // â”€â”€ CUSTOM layout (play mode) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   List<Widget> _customChildren(CustomLayout layout, double w, double h) {
@@ -1424,7 +1433,7 @@ class _GamePicker extends StatelessWidget {
                         for (final p in kGameProfiles.where((p) => !p.comingSoon))
                           _GameCard(profile: p, selected: p.id == currentId,
                             onTap: () => onPick(p.id),
-                            onCustomize: (p.id == 'standard' || p.id == 'forza' || p.id == 'spiderman')
+                            onCustomize: (p.id == 'standard' || p.id == 'forza' || p.id == 'spiderman' || p.id == 'overcooked')
                                 ? () => onCustomize(p.id) : null),
                         for (final l in customLayouts)
                           _CustomCard(
@@ -1730,7 +1739,7 @@ class _GamesDropdown extends StatelessWidget {
                 const Divider(height: 1, color: Color(0xFF20202C)),
                 // One-tap edit of whatever's active â€” no more digging into "All layouts".
                 if (currentId == 'standard' || currentId == 'forza' ||
-                    currentId == 'spiderman' || currentId.startsWith('custom:'))
+                    currentId == 'spiderman' || currentId == 'overcooked' || currentId.startsWith('custom:'))
                   _row(
                     currentId.startsWith('custom:') ? Icons.edit_outlined : Icons.tune,
                     currentId.startsWith('custom:') ? 'Edit this layout' : 'Customize this layout',
