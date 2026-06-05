@@ -439,7 +439,30 @@ class _ControllerScreenState extends State<ControllerScreen> {
     final hbSize = (big * s.handbrakeSize).clamp(56.0, 150.0);
 
     return [
-      // STEERING (bottom-left) â€” wheel / slider / tilt / L-R pads
+      // Right floating stick for mouse mode
+      Positioned(
+        right: 0, top: 28, bottom: 0, width: w * 0.5,
+        child: _FloatingStick(side: 'right', screenH: h, mouseMode: _mouseMode),
+      ),
+      // Mouse toggle + R-Click pill
+      Positioned(
+        bottom: h * 0.05, left: 0, right: 0,
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            _MouseToggleButton(
+              mouseMode: _mouseMode,
+              onToggle: () => setState(() => _mouseMode = !_mouseMode),
+            ),
+            if (_mouseMode) ...[
+              const SizedBox(width: 12),
+              const _MouseBtn(button: 'right', label: 'R-Click'),
+            ],
+          ],
+        ),
+      ),
+
+      // STEERING (bottom-left) — wheel / slider / tilt / L-R pads
       if (_forzaSteer == 'wheel')
         Positioned(
           left: 0, right: w * 0.54, top: h * 0.30, bottom: 0,
@@ -566,7 +589,23 @@ class _ControllerScreenState extends State<ControllerScreen> {
         ),
         Positioned(
           right: 0, top: 28, bottom: 0, width: w * 0.5,
-          child: _FloatingStick(side: 'right', screenH: h),
+          child: _FloatingStick(side: 'right', screenH: h, mouseMode: _mouseMode),
+        ),
+        Positioned(
+          bottom: h * 0.05, left: 0, right: 0,
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              _MouseToggleButton(
+                mouseMode: _mouseMode,
+                onToggle: () => setState(() => _mouseMode = !_mouseMode),
+              ),
+              if (_mouseMode) ...[
+                const SizedBox(width: 12),
+                const _MouseBtn(button: 'right', label: 'R-Click'),
+              ],
+            ],
+          ),
         ),
       ],
       for (final item in layout.items) _positionedCustom(item, w, h),
@@ -1267,7 +1306,7 @@ class _ConnChipState extends State<_ConnChip> with SingleTickerProviderStateMixi
 
   Widget _sep() => const Padding(
     padding: EdgeInsets.symmetric(horizontal: 6),
-    child: Text('Â·', style: TextStyle(color: Colors.white24, fontSize: 11)),
+    child: Text('•', style: TextStyle(color: Colors.white24, fontSize: 11)),
   );
 
   Widget _stat(String text, Color color, {FontWeight w = FontWeight.normal}) =>
@@ -1283,11 +1322,11 @@ class _ConnChipState extends State<_ConnChip> with SingleTickerProviderStateMixi
     if (connected) {
       if (_latency != null) {
         dotColor   = _latColor(_latency!);
-        label      = _player != null ? 'P$_player Â· ${_latency}ms' : '${_latency}ms';
+        label      = _player != null ? 'P$_player • ${_latency}ms' : '${_latency}ms';
         labelColor = dotColor;
       } else {
         dotColor = const Color(0xFF1DB954); 
-        label = _player != null ? 'P$_player Â· Connected' : 'Connected';
+        label = _player != null ? 'P$_player • Connected' : 'Connected';
       }
     } else if (widget.state == ws.ConnectionState.connecting) {
       dotColor = const Color(0xFFF9A825); label = 'Connecting';

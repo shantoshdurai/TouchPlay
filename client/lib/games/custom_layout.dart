@@ -348,17 +348,17 @@ CustomLayout cloneForza([String steer = 'wheel']) {
     items: [
       ...steering,
       // Pedals (bottom-right): GAS=RT, BRAKE=LT
-      _b(ControlKind.pedal, 0.90, 0.70, 'pedal:gas',   100, 'GAS',   'gas'),
-      _b(ControlKind.pedal, 0.77, 0.74, 'pedal:brake',  92, 'BRAKE', 'brake'),
+      _b(ControlKind.pedal, 0.90, 0.70, 'pedal:gas',   100, 'RT',   'gas'),
+      _b(ControlKind.pedal, 0.77, 0.74, 'pedal:brake',  92, 'LT', 'brake'),
       // Handbrake (drift) = A, just left of the pedals
-      _b(ControlKind.button, 0.66, 0.78, 'gp:A', 64, 'HBRAKE', 'hbrake'),
+      _b(ControlKind.button, 0.66, 0.78, 'gp:A', 64, 'A', 'hbrake'),
       // Secondary cluster (upper-right): CAM=RB, REWIND=Y, HORN=RS
-      _b(ControlKind.button, 0.78, 0.22, 'gp:RB', 56, 'CAM',    'cam'),
-      _b(ControlKind.button, 0.86, 0.22, 'gp:Y',  56, 'REWIND', 'rewind'),
-      _b(ControlKind.button, 0.93, 0.22, 'gp:RS', 56, 'HORN',   'horn'),
+      _b(ControlKind.button, 0.78, 0.22, 'gp:RB', 56, 'RB',    'cam'),
+      _b(ControlKind.button, 0.86, 0.22, 'gp:Y',  56, 'Y', 'rewind'),
+      _b(ControlKind.button, 0.93, 0.22, 'gp:RS', 56, 'RS',   'horn'),
       // Menu cluster (upper-left): SELECT=A, BACK=B (answer in-game prompts)
-      _b(ControlKind.button, 0.07, 0.22, 'gp:A', 56, 'SELECT', 'select'),
-      _b(ControlKind.button, 0.14, 0.22, 'gp:B', 56, 'BACK',   'close'),
+      _b(ControlKind.button, 0.07, 0.22, 'gp:A', 56, 'A', 'select'),
+      _b(ControlKind.button, 0.14, 0.22, 'gp:B', 56, 'B',   'close'),
       // Top-center utility (icon-only): MAP, ANNA, PHOTO, PAUSE
       _b(ControlKind.button, 0.40, 0.10, 'gp:BACK',      46, '', 'map'),
       _b(ControlKind.button, 0.47, 0.10, 'gp:DPAD_DOWN', 46, '', 'anna'),
@@ -386,24 +386,24 @@ CustomLayout cloneSpiderman() => CustomLayout(
       items: [
         // ── SWING: the hero control ────────────────────────────────────────
         // Hold = RT (web-swing fires). Drag while held = right-stick camera.
-        _b(ControlKind.swing, 0.70, 0.53, 'swing', 92),
+        _b(ControlKind.swing, 0.70, 0.53, 'swing', 92, 'RT', ''),
 
         // ── ABXY face buttons — to the right of SWING ─────────────────────
-        _b(ControlKind.button, 0.91, 0.28, 'gp:Y', 60, 'WINGS',  'wings'),  // △ web wings / yank
-        _b(ControlKind.button, 0.95, 0.50, 'gp:B', 60, 'DODGE',  'dodge'),  // ◯ dodge/evade
-        _b(ControlKind.button, 0.91, 0.72, 'gp:A', 60, 'JUMP',   'jump'),   // ✕ jump
-        _b(ControlKind.button, 0.84, 0.50, 'gp:X', 60, 'ATTACK', 'attack'), // □ melee attack
+        _b(ControlKind.button, 0.91, 0.28, 'gp:Y', 60, 'Y',  'wings'),  // △ web wings / yank
+        _b(ControlKind.button, 0.95, 0.50, 'gp:B', 60, 'B',  'dodge'),  // ◯ dodge/evade
+        _b(ControlKind.button, 0.91, 0.72, 'gp:A', 60, 'A',   'jump'),   // ✕ jump
+        _b(ControlKind.button, 0.84, 0.50, 'gp:X', 60, 'X', 'attack'), // □ melee attack
 
         // ── Right shoulder — R1 gadget / web-shooter ──────────────────────
-        _b(ControlKind.button, 0.82, 0.24, 'gp:RB', 54, 'GADGET', 'gadget'),
+        _b(ControlKind.button, 0.82, 0.24, 'gp:RB', 54, 'RB', 'gadget'),
 
         // ── Traversal extras (bottom-center) ──────────────────────────────
-        _b(ControlKind.button, 0.60, 0.80, 'combo:zip',     58, 'ZIP',  'zip'),  // L2+R2 point launch
-        _b(ControlKind.button, 0.52, 0.86, 'gp:DPAD_DOWN',  52, 'HEAL', 'heal'), // D-pad down heal
+        _b(ControlKind.button, 0.60, 0.80, 'combo:zip',     58, 'L2+R2',  'zip'),  // L2+R2 point launch
+        _b(ControlKind.button, 0.52, 0.86, 'gp:DPAD_DOWN',  52, 'DOWN', 'heal'), // D-pad down heal
 
         // ── Left side: aim (L2) + ability (L1) ────────────────────────────
-        _b(ControlKind.trigger, 0.14, 0.16, 'trig:left', 58, 'AIM'),              // L2 web-shooter aim
-        _b(ControlKind.button,  0.06, 0.34, 'gp:LB',     56, 'ABILITY', 'ability'), // L1 suit power
+        _b(ControlKind.trigger, 0.14, 0.16, 'trig:left', 58, 'LT'),              // L2 web-shooter aim
+        _b(ControlKind.button,  0.06, 0.34, 'gp:LB',     56, 'LB', 'ability'), // L1 suit power
 
         // ── Center utility ────────────────────────────────────────────────
         _b(ControlKind.button, 0.44, 0.11, 'gp:BACK',  44, '', 'map'),
@@ -421,18 +421,18 @@ CustomLayout cloneOvercooked() => CustomLayout(
       floatingSticks: true,
       items: [
         // ── Main Action Buttons ──
-        _b(ControlKind.button, 0.86, 0.58, 'gp:A', 62, 'PICK UP', 'pickup'), // A (bottom)
-        _b(ControlKind.button, 0.80, 0.44, 'gp:X', 62, 'CHOP', 'chop'),      // X (left)
-        _b(ControlKind.button, 0.92, 0.44, 'gp:B', 62, 'DASH', 'dash'),      // B (right)
-        _b(ControlKind.button, 0.86, 0.30, 'gp:Y', 62, 'SWEAR', 'swear'),    // Y (top)
+        _b(ControlKind.button, 0.86, 0.58, 'gp:A', 62, 'A', 'pickup'), // A (bottom)
+        _b(ControlKind.button, 0.80, 0.44, 'gp:X', 62, 'X', 'chop'),      // X (left)
+        _b(ControlKind.button, 0.92, 0.44, 'gp:B', 62, 'B', 'dash'),      // B (right)
+        _b(ControlKind.button, 0.86, 0.30, 'gp:Y', 62, 'Y', 'swear'),    // Y (top)
 
         // ── Bumpers for Chef Switching ──
-        _b(ControlKind.button, 0.07, 0.22, 'gp:LB', 56, 'CHEF', 'chef'),
-        _b(ControlKind.button, 0.93, 0.22, 'gp:RB', 56, 'CHEF', 'chef'),
+        _b(ControlKind.button, 0.07, 0.22, 'gp:LB', 56, 'LB', 'chef'),
+        _b(ControlKind.button, 0.93, 0.22, 'gp:RB', 56, 'RB', 'chef'),
 
         // ── Menu cluster (side): SELECT=A, BACK=B ──
-        _b(ControlKind.button, 0.07, 0.45, 'gp:A', 56, 'SELECT', 'select'),
-        _b(ControlKind.button, 0.14, 0.45, 'gp:B', 56, 'BACK', 'close'),
+        _b(ControlKind.button, 0.07, 0.45, 'gp:A', 56, 'A', 'select'),
+        _b(ControlKind.button, 0.14, 0.45, 'gp:B', 56, 'B', 'close'),
 
         // ── Center utility ──
         _b(ControlKind.button, 0.50, 0.11, 'gp:START', 46, '', 'pause'),
