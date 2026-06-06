@@ -10,7 +10,7 @@ from gamepad import (
     mouse_down, mouse_up, key_down, key_up, release_all_inputs,
 )
 from ui import ServerUI
-from stream import stream_handler, capture_loop, STREAM_PORT
+from stream import stream_handler, capture_loop, STREAM_PORT, set_high_quality
 
 def get_best_ip() -> str:
     """Return USB tethering IP (192.168.42.x) if available, else best LAN IP."""
@@ -188,6 +188,8 @@ def handle_message(data: dict, sess: Session) -> str | None:
         phone_name = data.get("phone_name")
         if phone_name and _ui:
             _ui.player_set_name(sess.player, phone_name)
+    elif t == "set_stream_quality":
+        set_high_quality(data.get("high_quality", False))
     return None
 
 

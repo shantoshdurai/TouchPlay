@@ -160,6 +160,10 @@ class _ControllerScreenState extends State<ControllerScreen> {
       final ip = WebSocketService.instance.currentIp;
       if (ip == null) return; // not connected — nothing to stream
       StreamService.instance.connect(ip);
+      WebSocketService.instance.send({
+        'type': 'set_stream_quality',
+        'high_quality': WebSocketService.instance.sensitivity.streamHighQuality,
+      });
       _streamSub = StreamService.instance.frameStream.listen((frame) {
         if (mounted) setState(() => _streamFrame = frame);
       });
@@ -965,6 +969,7 @@ class _SettingsPanelState extends State<_SettingsPanel> {
   late double _gasSize;
   late double _brakeSize;
   late double _hbSize;
+  late bool _streamHq;
 
   @override
   void initState() {
@@ -979,6 +984,7 @@ class _SettingsPanelState extends State<_SettingsPanel> {
     _gasSize    = s.gasSize;
     _brakeSize  = s.brakeSize;
     _hbSize     = s.handbrakeSize;
+    _streamHq   = s.streamHighQuality;
   }
 
   @override
@@ -1063,6 +1069,13 @@ class _SettingsPanelState extends State<_SettingsPanel> {
       WebSocketService.instance.sensitivity.mouseSensitivity = v;
     }, fmt: (v) => v.toStringAsFixed(0)),
     const SizedBox(height: 16),
+    _section('Stream'),
+    _switchRow('High Quality (USB Only)', _streamHq, (v) {
+      setState(() => _streamHq = v);
+      WebSocketService.instance.sensitivity.streamHighQuality = v;
+      WebSocketService.instance.send({'type': 'set_stream_quality', 'high_quality': v});
+    }),
+    const SizedBox(height: 16),
     _section('General'),
     _vibrationRow(),
     const SizedBox(height: 18),
@@ -1103,6 +1116,13 @@ class _SettingsPanelState extends State<_SettingsPanel> {
     _sliderRow('Handbrake', _hbSize, 0.6, 1.8, (v) {
       setState(() => _hbSize = v);
       WebSocketService.instance.sensitivity.handbrakeSize = v;
+    }),
+    const SizedBox(height: 16),
+    _section('Stream'),
+    _switchRow('High Quality (USB Only)', _streamHq, (v) {
+      setState(() => _streamHq = v);
+      WebSocketService.instance.sensitivity.streamHighQuality = v;
+      WebSocketService.instance.send({'type': 'set_stream_quality', 'high_quality': v});
     }),
     const SizedBox(height: 16),
     _section('General'),
@@ -1167,6 +1187,7 @@ class _SettingsPanelState extends State<_SettingsPanel> {
     s.gasSize               = d.gasSize;
     s.brakeSize             = d.brakeSize;
     s.handbrakeSize         = d.handbrakeSize;
+    s.streamHighQuality     = false;
     WebSocketService.instance.saveSensitivity();
     setState(() {
       _leftStick   = d.stickSensitivity;
@@ -1178,6 +1199,7 @@ class _SettingsPanelState extends State<_SettingsPanel> {
       _gasSize     = d.gasSize;
       _brakeSize   = d.brakeSize;
       _hbSize      = d.handbrakeSize;
+      _streamHq    = false;
     });
   }
 
@@ -1260,6 +1282,26 @@ class _SettingsPanelState extends State<_SettingsPanel> {
               overlayColor: const Color(0x2200D4FF),
             ),
             child: Slider(value: value, min: min, max: max, onChanged: onChanged),
+          ),
+        ),
+      ]),
+    );
+
+  Widget _switchRow(String label, bool value, ValueChanged<bool> onChanged) =>
+    Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Row(children: [
+        Text(label, style: const TextStyle(color: Colors.white, fontSize: 12)),
+        const Spacer(),
+        SizedBox(
+          height: 24,
+          child: Switch(
+            value: value,
+            onChanged: onChanged,
+            activeColor: const Color(0xFF00D4FF),
+            activeTrackColor: const Color(0x4400D4FF),
+            inactiveThumbColor: Colors.white54,
+            inactiveTrackColor: const Color(0xFF20202C),
           ),
         ),
       ]),
