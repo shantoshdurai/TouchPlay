@@ -8,8 +8,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:fh6_controller/main.dart';
-import 'package:fh6_controller/screens/controller_screen.dart';
+import 'package:touchplay/main.dart';
+import 'package:touchplay/screens/controller_screen.dart';
 
 void main() {
   testWidgets('App loads smoke test', (WidgetTester tester) async {

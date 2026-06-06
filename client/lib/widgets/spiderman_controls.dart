@@ -5,11 +5,11 @@ import '../services/haptics.dart';
 const _kRed  = Color(0xFFE5484D);
 const _kRest = Color(0x66FFFFFF);
 
-/// SWING â€” the hero control for Spider-Man 2.
+/// SWING — the hero control for Spider-Man 2.
 ///
-/// Touch + hold  â†’ RT pressed (web-swing fires).
-/// Drag while held â†’ right-stick X/Y (look around while swinging).
-/// Release        â†’ RT off, right-stick zeroed.
+/// Touch + hold  → RT pressed (web-swing fires).
+/// Drag while held → right-stick X/Y (look around while swinging).
+/// Release        → RT off, right-stick zeroed.
 ///
 /// The floating right-stick region is still active everywhere OUTSIDE
 /// this button, so free camera works normally when not swinging.
@@ -140,7 +140,7 @@ class _SwingPaint extends CustomPainter {
       ..style       = PaintingStyle.stroke
       ..strokeWidth = held ? 2.5 : 1.5);
 
-    // Direction arrow â€” shows where the camera is being pushed
+    // Direction arrow — shows where the camera is being pushed
     final drag = Offset(nx, -ny);
     if (held && drag.distance > 0.10) {
       final dir  = drag / drag.distance;

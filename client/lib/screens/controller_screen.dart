@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -6,6 +7,7 @@ import '../services/websocket_service.dart';
 import '../services/websocket_service.dart' as ws;
 import '../services/device_stats.dart';
 import '../services/haptics.dart';
+import '../services/stream_service.dart';
 import '../games/game_profiles.dart';
 import '../games/custom_layout.dart';
 import '../widgets/trigger_button.dart';
@@ -30,6 +32,11 @@ class _ControllerScreenState extends State<ControllerScreen> {
   bool _showGamesMenu    = false;   // quick-switch dropdown from the pill
   bool _showSteerChooser = false;
   bool _showForzaEditChooser = false; // "edit which steering?" before the editor
+
+  // ── Game stream ──────────────────────────────────────────────────────────────
+  bool        _streamOn   = false;
+  Uint8List?  _streamFrame;
+  StreamSubscription<Uint8List>? _streamSub;
   String _profileId  = 'standard';   // 'standard' | 'forza' | 'custom:<id>'
   String _forzaSteer = 'wheel';      // 'wheel' | 'pads'
   List<CustomLayout> _customLayouts = [];
@@ -110,7 +117,7 @@ class _ControllerScreenState extends State<ControllerScreen> {
     return null;
   }
 
-  // â”€â”€ Custom layout management â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Custom layout management ─────────────────────────────────────────────────
   Future<void> _openEditor(CustomLayout layout) async {
     final edited = await Navigator.of(context).push<CustomLayout>(
       MaterialPageRoute(builder: (_) => LayoutEditorScreen(layout: layout.copy())),
@@ -141,6 +148,23 @@ class _ControllerScreenState extends State<ControllerScreen> {
     }
     if (!mounted) return;
     setState(() { if (wasActive) _profileId = 'standard'; });
+  }
+
+  // ── Game stream toggle ───────────────────────────────────────────────────────
+  void _toggleStream() {
+    if (_streamOn) {
+      _streamSub?.cancel();
+      StreamService.instance.disconnect();
+      setState(() { _streamOn = false; _streamFrame = null; });
+    } else {
+      final ip = WebSocketService.instance.currentIp;
+      if (ip == null) return; // not connected — nothing to stream
+      StreamService.instance.connect(ip);
+      _streamSub = StreamService.instance.frameStream.listen((frame) {
+        if (mounted) setState(() => _streamFrame = frame);
+      });
+      setState(() => _streamOn = true);
+    }
   }
 
   void _saveProfile() async {
@@ -215,7 +239,13 @@ class _ControllerScreenState extends State<ControllerScreen> {
   }
 
   @override
-  void dispose() { _sub.cancel(); DeviceStats.instance.stop(); super.dispose(); }
+  void dispose() {
+    _sub.cancel();
+    _streamSub?.cancel();
+    StreamService.instance.disconnect();
+    DeviceStats.instance.stop();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -235,8 +265,17 @@ class _ControllerScreenState extends State<ControllerScreen> {
       backgroundColor: const Color(0xFF080810),
       body: Stack(
         children: [
-          // 1. Glowing background â€” shared by every layout
-          _BgGlow(),
+          // 1. Background — game stream if active, else standard glow
+          if (_streamOn && _streamFrame != null)
+            Positioned.fill(
+              child: Image.memory(
+                _streamFrame!,
+                fit: BoxFit.cover,
+                gaplessPlayback: true,
+              ),
+            )
+          else
+            _BgGlow(),
 
           // 2. Active game layout
           ...(custom != null
@@ -273,6 +312,11 @@ class _ControllerScreenState extends State<ControllerScreen> {
                     icon: custom != null ? Icons.tune : disp.icon,
                     label: custom != null ? custom.name : disp.name,
                     onTap: () => setState(() => _showGamesMenu = !_showGamesMenu),
+                  ),
+                  const SizedBox(width: 8),
+                  _StreamBtn(
+                    active: _streamOn,
+                    onTap: _toggleStream,
                   ),
                   const SizedBox(width: 8),
                   _SettingsBtn(onTap: () => setState(() => _showSettings = !_showSettings)),
@@ -325,7 +369,7 @@ class _ControllerScreenState extends State<ControllerScreen> {
           if (_showForzaEditChooser)
             _SteerChooser(
               title: 'EDIT WHICH STEERING?',
-              subtitle: 'Pick the steering you use â€” the editor opens with it,\n'
+              subtitle: 'Pick the steering you use — the editor opens with it,\n'
                   'plus the pedals & buttons, all movable & resizable.',
               onPick: (style) {
                 setState(() => _showForzaEditChooser = false);
@@ -338,7 +382,7 @@ class _ControllerScreenState extends State<ControllerScreen> {
     )); // PopScope + Scaffold
   }
 
-  // â”€â”€ STANDARD GAMEPAD layout â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── STANDARD GAMEPAD layout ──────────────────────────────────────────────────
   List<Widget> _standardChildren(double w, double h) => [
         // Center split line
         Positioned(
@@ -402,26 +446,27 @@ class _ControllerScreenState extends State<ControllerScreen> {
           ),
         ),
         // Right side buttons
-        Positioned(
-          top: 28, right: w * 0.02, bottom: h * 0.05,
-          child: SizedBox(
-            width: w * 0.35,
-            child: Stack(
-              children: [
-                Positioned(top: h * 0.05, left: w * 0.05, child: const BumperButton(button: 'RB', label: 'RB', width: 56)),
-                Positioned(top: h * 0.05, right: w * 0.05, child: const TriggerBar(side: 'right', label: 'RT', width: 56, height: 56)),
-                Positioned(bottom: h * 0.05, right: 0, child: const ActionButton(button: 'RS', label: 'R3', size: 56)),
-                Positioned(bottom: h * 0.25, right: w * 0.05, child: _FaceButtons()),
-              ],
+        if (!_mouseMode)
+          Positioned(
+            top: 28, right: w * 0.02, bottom: h * 0.05,
+            child: SizedBox(
+              width: w * 0.35,
+              child: Stack(
+                children: [
+                  Positioned(top: h * 0.05, left: w * 0.05, child: const BumperButton(button: 'RB', label: 'RB', width: 56)),
+                  Positioned(top: h * 0.05, right: w * 0.05, child: const TriggerBar(side: 'right', label: 'RT', width: 56, height: 56)),
+                  Positioned(bottom: h * 0.05, right: 0, child: const ActionButton(button: 'RS', label: 'R3', size: 56)),
+                  Positioned(bottom: h * 0.25, right: w * 0.05, child: _FaceButtons()),
+                ],
+              ),
             ),
           ),
-        ),
       ];
 
-  // â”€â”€ FORZA HORIZON layout â€” mobile racing HUD â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── FORZA HORIZON layout — mobile racing HUD ─────────────────────────────────
   // Every control sends a standard gamepad event (FH5 default mapping):
-  //   GASâ†’RT  BRAKEâ†’LT  HANDBRAKEâ†’A  CAMâ†’RB  REWINDâ†’Y  HORNâ†’RS
-  //   CLUTCHâ†’LB  SHIFTâ†‘â†’B  MAPâ†’BACK  ANNAâ†’DPADâ†“  PHOTOâ†’DPADâ†‘  PAUSEâ†’START
+  //   GAS→RT  BRAKE→LT  HANDBRAKE→A  CAM→RB  REWIND→Y  HORN→RS
+  //   CLUTCH→LB  SHIFTâ†‘→B  MAP→BACK  ANNA→DPADâ†“  PHOTO→DPADâ†‘  PAUSE→START
   List<Widget> _forzaChildren(double w, double h) {
     final s      = WebSocketService.instance.sensitivity;
     final joyR   = s.joyRadius;
@@ -490,25 +535,25 @@ class _ControllerScreenState extends State<ControllerScreen> {
       ],
 
       // PEDALS (bottom-right): GAS=RT, BRAKE=LT
-      Positioned(
+      if (!_mouseMode) Positioned(
         right: w * 0.035, bottom: h * 0.07,
         child: RacePedal(gas: true, label: 'GAS', icon: Icons.local_gas_station,
             width: gasW, height: gasH),
       ),
-      Positioned(
+      if (!_mouseMode) Positioned(
         right: w * 0.035 + gasW + w * 0.02, bottom: h * 0.07,
         child: RacePedal(gas: false, label: 'BRAKE', icon: Icons.front_hand,
             width: brakeW, height: brakeH),
       ),
 
-      // HANDBRAKE (drift) = A â€” just left of the pedals
-      Positioned(
+      // HANDBRAKE (drift) = A — just left of the pedals
+      if (!_mouseMode) Positioned(
         right: w * 0.06 + gasW + brakeW, bottom: h * 0.13,
         child: RaceButton(button: 'A', label: 'HBRAKE', icon: Icons.local_parking, size: hbSize),
       ),
 
       // Secondary cluster (upper-right): CAM=RB, REWIND=Y, HORN=RS
-      Positioned(
+      if (!_mouseMode) Positioned(
         top: h * 0.15, right: w * 0.04,
         child: Row(children: [
           RaceButton(button: 'RB', label: 'CAM', icon: Icons.cameraswitch, size: small),
@@ -519,7 +564,7 @@ class _ControllerScreenState extends State<ControllerScreen> {
         ]),
       ),
 
-      // Menu cluster (upper-left): A = select/confirm, B = back/close â€” so you can
+      // Menu cluster (upper-left): A = select/confirm, B = back/close — so you can
       // answer in-game prompts (e.g. rewind "confirm?") without switching layouts.
       Positioned(
         top: h * 0.15, left: w * 0.04,
@@ -546,7 +591,7 @@ class _ControllerScreenState extends State<ControllerScreen> {
     ];
   }
 
-  // â”€â”€ MARVEL'S SPIDER-MAN 2 layout â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── MARVEL'S SPIDER-MAN 2 layout ─────────────────────────────────────────────
   // Rendered from the SAME editable definition you get when you tap Customize, so
   // the default and the editor always match. Left half = MOVE, right half =
   // CAMERA (fixed sticks); SWING on the right; every button is rebindable.
@@ -558,7 +603,7 @@ class _ControllerScreenState extends State<ControllerScreen> {
   List<Widget> _overcookedChildren(double w, double h) =>
       _customChildren(_overcookedLayout ??= cloneOvercooked(), w, h);
 
-  // â”€â”€ CUSTOM layout (play mode) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── CUSTOM layout (play mode) ────────────────────────────────────────────────
   List<Widget> _customChildren(CustomLayout layout, double w, double h) {
     if (layout.items.isEmpty) {
       return [
@@ -569,14 +614,14 @@ class _ControllerScreenState extends State<ControllerScreen> {
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(12),
               border: Border.all(color: const Color(0x66FFFFFF))),
-            child: const Text('Empty layout â€” tap to add controls',
+            child: const Text('Empty layout — tap to add controls',
               style: TextStyle(color: Colors.white54, fontSize: 13)),
           ),
         )),
       ];
     }
     return [
-      // Standard "Xbox" fixed sticks â€” full-half floating sticks drawn under the
+      // Standard "Xbox" fixed sticks — full-half floating sticks drawn under the
       // editable controls (so buttons on top still capture their own touches).
       if (layout.floatingSticks) ...[
         Positioned(
@@ -608,7 +653,8 @@ class _ControllerScreenState extends State<ControllerScreen> {
           ),
         ),
       ],
-      for (final item in layout.items) _positionedCustom(item, w, h),
+      for (final item in layout.items)
+        if (!_mouseMode || item.x <= 0.5) _positionedCustom(item, w, h),
     ];
   }
 
@@ -626,7 +672,7 @@ class _ControllerScreenState extends State<ControllerScreen> {
       showDialog(context: ctx, builder: (_) => const _IpDialog());
 }
 
-/// Unified floating joystick â€” used IDENTICALLY for both left and right halves.
+/// Unified floating joystick — used IDENTICALLY for both left and right halves.
 /// Hidden until touched; spawns at the touch point; same size/style on both sides.
 class _FloatingStick extends StatefulWidget {
   const _FloatingStick({
@@ -652,7 +698,7 @@ class _FloatingStickState extends State<_FloatingStick> {
   bool get _isLeft  => widget.side == 'left';
   String get _stick => _isLeft ? 'left_stick' : 'right_stick';
 
-  // Same base radius for BOTH sticks â†’ identical size. Scaled by one setting.
+  // Same base radius for BOTH sticks → identical size. Scaled by one setting.
   double get _joyR =>
       widget.screenH * 0.16 * WebSocketService.instance.sensitivity.joyRadius;
 
@@ -674,7 +720,7 @@ class _FloatingStickState extends State<_FloatingStick> {
     _downPos = e.localPosition;
 
     if (widget.mouseMode) {
-      // double-tap â†’ left click
+      // double-tap → left click
       final now = DateTime.now();
       if (_lastTapTime != null &&
           now.difference(_lastTapTime!).inMilliseconds < _doubleTapMs) {
@@ -689,7 +735,7 @@ class _FloatingStickState extends State<_FloatingStick> {
   void _onMove(PointerMoveEvent e) {
     if (e.pointer != _trackId) return;
 
-    // â”€â”€ Mouse / trackpad mode (right side toggle) â”€â”€
+    // ── Mouse / trackpad mode (right side toggle) ──
     if (widget.mouseMode) {
       if (e.delta.distance < 0.5) return;
       final sens = WebSocketService.instance.sensitivity.mouseSensitivity / 10.0;
@@ -701,7 +747,7 @@ class _FloatingStickState extends State<_FloatingStick> {
       return;
     }
 
-    // â”€â”€ Joystick mode â”€â”€
+    // ── Joystick mode ──
     if (_center == null) return;
     final r = _joyR;
     var offset  = e.localPosition - _center!;
@@ -761,7 +807,7 @@ class _FloatingStickState extends State<_FloatingStick> {
     onPointerUp:     _onUp,
     onPointerCancel: _onCancel,
     child: CustomPaint(
-      // null painter when idle â†’ completely hidden, nothing "stuck" on screen
+      // null painter when idle → completely hidden, nothing "stuck" on screen
       painter: _center != null
           ? _StickPainter(center: _center!, thumb: _thumb, radius: _joyR)
           : null,
@@ -770,7 +816,7 @@ class _FloatingStickState extends State<_FloatingStick> {
   );
 }
 
-// â”€â”€ Stick painter â€” identical style for both sides â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Stick painter — identical style for both sides ────────────────────────────
 
 class _StickPainter extends CustomPainter {
   const _StickPainter({required this.center, required this.thumb, required this.radius});
@@ -780,7 +826,7 @@ class _StickPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    // Outer + inner rings â€” same color/thickness/opacity on both sticks
+    // Outer + inner rings — same color/thickness/opacity on both sticks
     final ring = Paint()
       ..color = const Color(0x66FFFFFF)
       ..style = PaintingStyle.stroke
@@ -788,7 +834,7 @@ class _StickPainter extends CustomPainter {
     canvas.drawCircle(center, radius,       ring);
     canvas.drawCircle(center, radius * 0.7, ring);
 
-    // Gray dotted thumb â€” identical to the original left stick
+    // Gray dotted thumb — identical to the original left stick
     final tp     = center + thumb;
     final thumbR = radius * 0.38;
     canvas.drawCircle(tp, thumbR,
@@ -843,7 +889,7 @@ class _MouseToggleButton extends StatelessWidget {
   );
 }
 
-// â”€â”€ Face buttons â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Face buttons ──────────────────────────────────────────────────────────────
 
 class _FaceButtons extends StatelessWidget {
   @override
@@ -858,7 +904,7 @@ class _FaceButtons extends StatelessWidget {
   );
 }
 
-// â”€â”€ Mouse click buttons â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Mouse click buttons ───────────────────────────────────────────────────────
 
 class _MouseBtn extends StatefulWidget {
   const _MouseBtn({required this.button, required this.label});
@@ -890,7 +936,7 @@ class _MouseBtnState extends State<_MouseBtn> {
   );
 }
 
-// â”€â”€ Settings panel (profile-aware) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Settings panel (profile-aware) ────────────────────────────────────────────
 
 class _SettingsPanel extends StatefulWidget {
   const _SettingsPanel({
@@ -944,28 +990,40 @@ class _SettingsPanelState extends State<_SettingsPanel> {
 
   @override
   Widget build(BuildContext context) {
+    final top = MediaQuery.of(context).padding.top;
     final sz = MediaQuery.of(context).size;
     final forza = widget.profileId == 'forza';
-    return GestureDetector(
-      onTap: widget.onClose,
-      child: Container(
-        color: Colors.black.withValues(alpha: 0.78),
-        child: Center(
-          child: GestureDetector(
-            onTap: () {},
+    return Stack(children: [
+      Positioned.fill(child: GestureDetector(
+        behavior: HitTestBehavior.opaque, onTap: widget.onClose,
+        child: const SizedBox.expand())),
+      Positioned(
+        top: top + 42, right: 10,
+        child: TweenAnimationBuilder<double>(
+          tween: Tween(begin: 0, end: 1),
+          duration: const Duration(milliseconds: 130),
+          curve: Curves.easeOutCubic,
+          builder: (_, t, child) => Opacity(
+            opacity: t,
+            child: Transform.translate(offset: Offset(0, (1 - t) * -8), child: child),
+          ),
+          child: Material(
+            color: Colors.transparent,
             child: Container(
-              width: (sz.width * 0.55).clamp(320.0, 440.0),
-              constraints: BoxConstraints(maxHeight: sz.height * 0.92),
+              width: 200,
+              constraints: BoxConstraints(maxHeight: (sz.height - top - 54).clamp(200.0, sz.height)),
               decoration: BoxDecoration(
                 color: const Color(0xFF0D0D14),
-                borderRadius: BorderRadius.circular(18),
-                border: Border.all(color: const Color(0xFF20202C)),
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: const Color(0xFF24243A)),
+                boxShadow: [BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.5), blurRadius: 20, offset: const Offset(0, 8))],
               ),
               child: Column(mainAxisSize: MainAxisSize.min, children: [
                 _header(),
                 Flexible(
                   child: SingleChildScrollView(
-                    padding: const EdgeInsets.fromLTRB(20, 2, 20, 16),
+                    padding: const EdgeInsets.fromLTRB(16, 2, 16, 16),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: forza ? _forzaSettings() : _standardSettings(),
@@ -977,7 +1035,7 @@ class _SettingsPanelState extends State<_SettingsPanel> {
           ),
         ),
       ),
-    );
+    ]);
   }
 
   List<Widget> _standardSettings() => [
@@ -1023,7 +1081,7 @@ class _SettingsPanelState extends State<_SettingsPanel> {
       WebSocketService.instance.sensitivity.deadZone = v;
     }, fmt: (v) => '${(v * 100).round()}%'),
     const SizedBox(height: 16),
-    // All four main controls are resizable â€” not just the steering.
+    // All four main controls are resizable — not just the steering.
     _section('Control sizes'),
     _sliderRow(
         widget.steerMode == 'wheel' ? 'Steering wheel'
@@ -1124,10 +1182,10 @@ class _SettingsPanelState extends State<_SettingsPanel> {
   }
 
   Widget _header() => Padding(
-    padding: const EdgeInsets.fromLTRB(20, 16, 14, 10),
+    padding: const EdgeInsets.fromLTRB(16, 16, 12, 10),
     child: Row(children: [
       const Text('Settings', style: TextStyle(
-        color: Colors.white, fontSize: 17, fontWeight: FontWeight.w600)),
+        color: Colors.white, fontSize: 15, fontWeight: FontWeight.w600)),
       const Spacer(),
       GestureDetector(
         onTap: () {
@@ -1179,26 +1237,23 @@ class _SettingsPanelState extends State<_SettingsPanel> {
   Widget _sliderRow(String label, double value, double min, double max,
       ValueChanged<double> onChanged, {String Function(double)? fmt}) =>
     Padding(
-      // Generous vertical padding = clear gaps to scroll between sliders, so a
-      // scroll drag doesn't accidentally grab a slider.
-      padding: const EdgeInsets.symmetric(vertical: 10),
+      padding: const EdgeInsets.symmetric(vertical: 6),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Row(children: [
-          Text(label, style: const TextStyle(color: Colors.white, fontSize: 14)),
+          Text(label, style: const TextStyle(color: Colors.white, fontSize: 12)),
           const Spacer(),
           Text(fmt != null ? fmt(value) : value.toStringAsFixed(1),
             style: const TextStyle(
-              color: Color(0xFF00D4FF), fontSize: 14, fontWeight: FontWeight.w700)),
+              color: Color(0xFF00D4FF), fontSize: 12, fontWeight: FontWeight.w700)),
         ]),
         const SizedBox(height: 2),
-        // Big thumb + tall track => easy to grab on purpose, hard to nudge by mistake.
         SizedBox(
-          height: 40,
+          height: 32,
           child: SliderTheme(
             data: SliderThemeData(
-              trackHeight: 6,
-              thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 12, elevation: 2),
-              overlayShape: const RoundSliderOverlayShape(overlayRadius: 26),
+              trackHeight: 4,
+              thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 10, elevation: 2),
+              overlayShape: const RoundSliderOverlayShape(overlayRadius: 20),
               activeTrackColor: const Color(0xFF00D4FF),
               inactiveTrackColor: const Color(0xFF20202C),
               thumbColor: Colors.white,
@@ -1211,7 +1266,7 @@ class _SettingsPanelState extends State<_SettingsPanel> {
     );
 }
 
-// â”€â”€ Background glow â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Background glow ───────────────────────────────────────────────────────────
 
 class _BgGlow extends StatelessWidget {
   @override
@@ -1246,7 +1301,7 @@ class _GlowPainter extends CustomPainter {
   @override bool shouldRepaint(_) => false;
 }
 
-// â”€â”€ Connection chip + Settings button â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Connection chip + Settings button ─────────────────────────────────────────
 
 class _ConnChip extends StatefulWidget {
   const _ConnChip({required this.state, required this.onTap});
@@ -1317,16 +1372,23 @@ class _ConnChipState extends State<_ConnChip> with SingleTickerProviderStateMixi
   @override
   Widget build(BuildContext context) {
     final connected = widget.state == ws.ConnectionState.connected;
+    final mismatch = WebSocketService.instance.versionMismatch;
     Color dotColor; String label; Color labelColor = Colors.white60;
 
     if (connected) {
-      if (_latency != null) {
+      if (mismatch) {
+        dotColor = const Color(0xFFE53935);
+        label = 'Version Mismatch';
+        labelColor = dotColor;
+      } else if (_latency != null) {
         dotColor   = _latColor(_latency!);
-        label      = _player != null ? 'P$_player • ${_latency}ms' : '${_latency}ms';
+        final showP = _player != null && WebSocketService.instance.connectedPlayers > 1;
+        label      = showP ? 'P$_player • ${_latency}ms' : '${_latency}ms';
         labelColor = dotColor;
       } else {
         dotColor = const Color(0xFF1DB954); 
-        label = _player != null ? 'P$_player • Connected' : 'Connected';
+        final showP = _player != null && WebSocketService.instance.connectedPlayers > 1;
+        label = showP ? 'P$_player • Connected' : 'Connected';
       }
     } else if (widget.state == ws.ConnectionState.connecting) {
       dotColor = const Color(0xFFF9A825); label = 'Connecting';
@@ -1360,7 +1422,7 @@ class _ConnChipState extends State<_ConnChip> with SingleTickerProviderStateMixi
               w: connected && _latency != null ? FontWeight.w600 : FontWeight.normal),
           if (dev != null && dev.hasTemp) ...[
             _sep(),
-            _stat('${dev.tempC.toStringAsFixed(0)}Â°', _heatColor(dev.tempC)),
+            _stat('${dev.tempC.toStringAsFixed(0)}°', _heatColor(dev.tempC)),
           ],
           if (dev != null && dev.hasBattery) ...[
             _sep(),
@@ -1391,7 +1453,35 @@ class _SettingsBtn extends StatelessWidget {
   );
 }
 
-// â”€â”€ Games tab (top bar) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Stream toggle button (top bar) ───────────────────────────────────────────
+class _StreamBtn extends StatelessWidget {
+  const _StreamBtn({required this.active, required this.onTap});
+  final bool active;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) => GestureDetector(
+    onTap: onTap,
+    child: Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: active ? const Color(0x3300D4FF) : const Color(0x99000000),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(
+          color: active ? const Color(0xFF00D4FF) : Colors.white12,
+          width: 1,
+        ),
+      ),
+      child: Icon(
+        Icons.cast,
+        color: active ? const Color(0xFF00D4FF) : Colors.white60,
+        size: 16,
+      ),
+    ),
+  );
+}
+
+// ── Games tab (top bar) ───────────────────────────────────────────────────────
 
 class _GamesBtn extends StatelessWidget {
   const _GamesBtn({required this.icon, required this.label, required this.onTap});
@@ -1426,7 +1516,7 @@ class _GamesBtn extends StatelessWidget {
   );
 }
 
-// â”€â”€ Game picker overlay â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Game picker overlay ───────────────────────────────────────────────────────
 
 class _GamePicker extends StatelessWidget {
   const _GamePicker({
@@ -1450,30 +1540,41 @@ class _GamePicker extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final top = MediaQuery.of(context).padding.top;
     final sz = MediaQuery.of(context).size;
-    return GestureDetector(
-      onTap: onClose,
-      child: Container(
-        color: Colors.black.withValues(alpha: 0.80),
-        child: Center(
-          child: GestureDetector(
-            onTap: () {},
+    return Stack(children: [
+      Positioned.fill(child: GestureDetector(
+        behavior: HitTestBehavior.opaque, onTap: onClose,
+        child: const SizedBox.expand())),
+      Center(
+        child: TweenAnimationBuilder<double>(
+          tween: Tween(begin: 0, end: 1),
+          duration: const Duration(milliseconds: 150),
+          curve: Curves.easeOutCubic,
+          builder: (_, t, child) => Opacity(
+            opacity: t,
+            child: Transform.scale(scale: 0.95 + (0.05 * t), child: child),
+          ),
+          child: Material(
+            color: Colors.transparent,
             child: Container(
               width: (sz.width * 0.85).clamp(360.0, 820.0),
-              constraints: BoxConstraints(maxHeight: sz.height * 0.92),
+              constraints: BoxConstraints(maxHeight: (sz.height * 0.85).clamp(200.0, 600.0)),
               decoration: BoxDecoration(
                 color: const Color(0xFF0D0D14),
-                borderRadius: BorderRadius.circular(18),
-                border: Border.all(color: const Color(0xFF20202C)),
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: const Color(0xFF24243A)),
+                boxShadow: [BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.5), blurRadius: 20, offset: const Offset(0, 8))],
               ),
               child: Column(mainAxisSize: MainAxisSize.min, children: [
                 Padding(
-                  padding: const EdgeInsets.fromLTRB(20, 16, 14, 4),
+                  padding: const EdgeInsets.fromLTRB(24, 20, 16, 4),
                   child: Row(children: [
-                    const Icon(Icons.grid_view_rounded, color: Color(0xFF00D4FF), size: 18),
-                    const SizedBox(width: 8),
-                    const Text('Game Layouts', style: TextStyle(
-                      color: Colors.white, fontSize: 17, fontWeight: FontWeight.w600)),
+                    const Icon(Icons.apps_rounded, color: Color(0xFF00D4FF), size: 22),
+                    const SizedBox(width: 10),
+                    const Text('Game Layouts Library', style: TextStyle(
+                      color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold)),
                     const Spacer(),
                     GestureDetector(
                       onTap: onClose,
@@ -1487,16 +1588,16 @@ class _GamePicker extends StatelessWidget {
                   ]),
                 ),
                 const Padding(
-                  padding: EdgeInsets.fromLTRB(20, 0, 20, 12),
+                  padding: EdgeInsets.fromLTRB(24, 0, 24, 16),
                   child: Align(
                     alignment: Alignment.centerLeft,
-                    child: Text('Pick a layout â€” or build your own with the editor',
-                      style: TextStyle(color: Colors.white38, fontSize: 12)),
+                    child: Text('Pick a layout from the library, or build your own custom layout from scratch.',
+                      style: TextStyle(color: Colors.white54, fontSize: 13)),
                   ),
                 ),
                 Flexible(
                   child: SingleChildScrollView(
-                    padding: const EdgeInsets.fromLTRB(16, 2, 16, 18),
+                    padding: const EdgeInsets.fromLTRB(20, 2, 20, 24),
                     child: Wrap(
                       spacing: 12, runSpacing: 12, alignment: WrapAlignment.center,
                       children: [
@@ -1525,7 +1626,7 @@ class _GamePicker extends StatelessWidget {
           ),
         ),
       ),
-    );
+    ]);
   }
 }
 
@@ -1544,29 +1645,29 @@ class _GameCard extends StatelessWidget {
       child: Opacity(
         opacity: profile.comingSoon ? 0.45 : 1.0,
         child: Container(
-          width: 150, height: 148,
+          width: 160, height: 160,
           decoration: BoxDecoration(
-            color: selected ? const Color(0x1A00D4FF) : const Color(0xFF12121C),
+            color: selected ? const Color(0x1A00D4FF) : const Color(0xFF161622),
             borderRadius: BorderRadius.circular(16),
             border: Border.all(
-              color: selected ? accent : const Color(0xFF24243A),
+              color: selected ? accent : const Color(0xFF2C2C40),
               width: selected ? 2 : 1,
             ),
           ),
           child: Stack(children: [
             Padding(
-              padding: const EdgeInsets.all(14),
+              padding: const EdgeInsets.all(16),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Icon(profile.icon, color: selected ? accent : Colors.white, size: 40),
+                  Icon(profile.icon, color: selected ? accent : Colors.white, size: 44),
                   Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                     Text(profile.name, maxLines: 1, overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w600)),
-                    const SizedBox(height: 2),
+                      style: const TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.w600)),
+                    const SizedBox(height: 4),
                     Text(profile.tagline, maxLines: 1, overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(color: Colors.white38, fontSize: 10)),
+                      style: const TextStyle(color: Colors.white54, fontSize: 11)),
                   ]),
                 ],
               ),
@@ -1575,22 +1676,22 @@ class _GameCard extends StatelessWidget {
               Positioned(top: 8, right: 8, child: GestureDetector(
                 onTap: onCustomize,
                 child: Container(
-                  padding: const EdgeInsets.all(5),
-                  decoration: const BoxDecoration(shape: BoxShape.circle, color: Color(0xFF1A1A24)),
-                  child: const Icon(Icons.tune, size: 14, color: Colors.white54),
+                  padding: const EdgeInsets.all(6),
+                  decoration: const BoxDecoration(shape: BoxShape.circle, color: Color(0xFF24243A)),
+                  child: const Icon(Icons.tune, size: 16, color: Colors.white70),
                 ),
               )),
-            if (selected)
-              const Positioned(bottom: 8, right: 8,
-                child: Icon(Icons.check_circle, color: accent, size: 18)),
+            if (selected && onCustomize == null)
+              const Positioned(bottom: 10, right: 10,
+                child: Icon(Icons.check_circle, color: accent, size: 20)),
             if (profile.comingSoon)
               Positioned(top: 10, right: 10,
                 child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                   decoration: BoxDecoration(
-                    color: const Color(0xFF24243A), borderRadius: BorderRadius.circular(8)),
+                    color: const Color(0xFF2C2C40), borderRadius: BorderRadius.circular(8)),
                   child: const Text('SOON', style: TextStyle(
-                    color: Colors.white54, fontSize: 8,
+                    color: Colors.white54, fontSize: 9,
                     fontWeight: FontWeight.bold, letterSpacing: 1)),
                 )),
           ]),
@@ -1625,39 +1726,39 @@ class _CustomCard extends StatelessWidget {
     return GestureDetector(
       onTap: onTap,
       child: Container(
-        width: 150, height: 148,
+        width: 160, height: 160,
         decoration: BoxDecoration(
-          color: selected ? const Color(0x1A00D4FF) : const Color(0xFF12121C),
+          color: selected ? const Color(0x1A00D4FF) : const Color(0xFF161622),
           borderRadius: BorderRadius.circular(16),
           border: Border.all(
-            color: selected ? accent : const Color(0xFF24243A), width: selected ? 2 : 1),
+            color: selected ? accent : const Color(0xFF2C2C40), width: selected ? 2 : 1),
         ),
         child: Stack(children: [
           Padding(
-            padding: const EdgeInsets.all(14),
+            padding: const EdgeInsets.all(16),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Icon(Icons.tune, color: selected ? accent : Colors.white, size: 36),
+                Icon(Icons.tune, color: selected ? accent : Colors.white, size: 40),
                 Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                   Text(layout.name, maxLines: 1, overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w600)),
-                  const SizedBox(height: 2),
-                  Text('${layout.items.length} controls Â· custom',
-                    style: const TextStyle(color: Colors.white38, fontSize: 10)),
+                    style: const TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.w600)),
+                  const SizedBox(height: 4),
+                  Text('${layout.items.length} controls · custom',
+                    style: const TextStyle(color: Colors.white54, fontSize: 11)),
                 ]),
               ],
             ),
           ),
-          Positioned(top: 6, right: 6, child: Row(children: [
+          Positioned(top: 8, right: 8, child: Row(children: [
             _mini(Icons.edit, onEdit),
-            const SizedBox(width: 4),
+            const SizedBox(width: 6),
             _mini(Icons.delete_outline, onDelete, color: const Color(0xFFE53935)),
           ])),
           if (selected)
-            const Positioned(bottom: 8, right: 8,
-              child: Icon(Icons.check_circle, color: accent, size: 18)),
+            const Positioned(bottom: 10, right: 10,
+              child: Icon(Icons.check_circle, color: accent, size: 20)),
         ]),
       ),
     );
@@ -1671,19 +1772,19 @@ class _NewCard extends StatelessWidget {
   Widget build(BuildContext context) => GestureDetector(
     onTap: onTap,
     child: Container(
-      width: 150, height: 148,
+      width: 160, height: 160,
       decoration: BoxDecoration(
         color: Colors.transparent,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: const Color(0xFF2E2E44)),
+        border: Border.all(color: const Color(0xFF2E2E44), width: 1.5),
       ),
       child: const Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-        Icon(Icons.add_circle_outline, color: Color(0xFF00D4FF), size: 34),
-        SizedBox(height: 10),
+        Icon(Icons.add_circle_outline, color: Color(0xFF00D4FF), size: 36),
+        SizedBox(height: 12),
         Text('New Layout', style: TextStyle(
-          color: Colors.white70, fontSize: 13, fontWeight: FontWeight.w600)),
-        SizedBox(height: 2),
-        Text('Build your own', style: TextStyle(color: Colors.white38, fontSize: 10)),
+          color: Colors.white70, fontSize: 15, fontWeight: FontWeight.w600)),
+        SizedBox(height: 4),
+        Text('Build your own', style: TextStyle(color: Colors.white38, fontSize: 11)),
       ]),
     ),
   );
@@ -1740,7 +1841,7 @@ class _TemplatePicker extends StatelessWidget {
   );
 }
 
-// â”€â”€ Games quick-switch dropdown (from the top-bar pill) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Games quick-switch dropdown (from the top-bar pill) ───────────────────────
 
 class _GamesDropdown extends StatelessWidget {
   const _GamesDropdown({
@@ -1781,7 +1882,7 @@ class _GamesDropdown extends StatelessWidget {
             color: Colors.transparent,
             child: Container(
               width: 196,
-              // Always fit the visible (landscape) screen â€” never run off-screen.
+              // Always fit the visible (landscape) screen — never run off-screen.
               constraints: BoxConstraints(maxHeight: (sz.height - top - 54).clamp(140.0, sz.height)),
               decoration: BoxDecoration(
                 color: const Color(0xFF0D0D14),
@@ -1857,7 +1958,7 @@ class _GamesDropdown extends StatelessWidget {
   }
 }
 
-// â”€â”€ First-time steering chooser (Forza) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── First-time steering chooser (Forza) ───────────────────────────────────────
 
 class _SteerChooser extends StatelessWidget {
   const _SteerChooser({
@@ -1955,7 +2056,7 @@ class _SteerOption extends StatelessWidget {
   );
 }
 
-// â”€â”€ Tutorial overlay (first launch) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Tutorial overlay (first launch) ──────────────────────────────────────────
 
 class _TutorialOverlay extends StatefulWidget {
   const _TutorialOverlay({required this.onDismiss});
@@ -2010,10 +2111,10 @@ class _TutorialOverlayState extends State<_TutorialOverlay>
           // Vertical divider
           Center(child: Container(width: 1, color: Colors.white.withValues(alpha: 0.1))),
           // Left label
-          _half('MOVE', 'touch anywhere â†’ stick spawns',
+          _half('MOVE', 'touch anywhere → stick spawns',
               Icons.touch_app, Alignment.centerLeft),
           // Right label
-          _half('CAMERA', 'touch anywhere â†’ stick spawns',
+          _half('CAMERA', 'touch anywhere → stick spawns',
               Icons.touch_app, Alignment.centerRight),
           // Bottom hint
           Align(alignment: Alignment.bottomCenter, child: Padding(
@@ -2027,7 +2128,7 @@ class _TutorialOverlayState extends State<_TutorialOverlay>
   );
 }
 
-// â”€â”€ IP dialog â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── IP dialog ─────────────────────────────────────────────────────────────────
 
 class _IpDialog extends StatefulWidget {
   const _IpDialog();
@@ -2075,17 +2176,6 @@ class _IpDialogState extends State<_IpDialog> {
     ]),
   );
 
-  Widget _tip(String text) => Padding(
-    padding: const EdgeInsets.symmetric(vertical: 3),
-    child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      const Padding(
-        padding: EdgeInsets.only(top: 1, right: 8),
-        child: Icon(Icons.check_circle_outline, color: Color(0xFF00D4FF), size: 13)),
-      Expanded(child: Text(text, style: const TextStyle(
-        color: Colors.white54, fontSize: 11, height: 1.3))),
-    ]),
-  );
-
   Widget _label(String text) => Text(text, style: const TextStyle(
     color: Colors.white38, fontSize: 9, fontWeight: FontWeight.bold, letterSpacing: 1.8));
 
@@ -2098,7 +2188,7 @@ class _IpDialogState extends State<_IpDialog> {
         ? const Color(0xFF1DB954)
         : connecting ? const Color(0xFFF9A825) : const Color(0xFFE53935);
     final statusText = connected ? 'Connected'
-        : connecting ? 'Connectingâ€¦' : 'Not connected';
+        : connecting ? 'Connecting…' : 'Not connected';
 
     final sz         = MediaQuery.of(context).size;
     final found      = svc.discoveredIp;
@@ -2140,12 +2230,32 @@ class _IpDialogState extends State<_IpDialog> {
                 border: Border.all(color: const Color(0xFF222232)),
               ),
               child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                _diagRow('Found PC', found ?? (connecting ? 'searchingâ€¦' : 'not found yet'),
+                _diagRow('Found PC', found ?? (connecting ? 'searching…' : 'not found yet'),
                     valueColor: found != null ? const Color(0xFF00D4FF) : Colors.white38),
-                _diagRow('Trying', candidates.isEmpty ? 'â€”' : candidates.join('   Â·   ')),
-                if (svc.serverVersion != null) _diagRow('Server', 'v${svc.serverVersion}'),
+                _diagRow('Trying', candidates.isEmpty ? '—' : candidates.join('   ·   ')),
+                if (svc.serverVersion != null) _diagRow('Server', 'v${svc.serverVersion}', 
+                  valueColor: svc.versionMismatch ? const Color(0xFFE53935) : null),
               ]),
             ),
+            if (svc.versionMismatch) ...[
+              const SizedBox(height: 8),
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: const Color(0x33E53935),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: const Color(0x88E53935)),
+                ),
+                child: const Row(children: [
+                  Icon(Icons.warning_amber_rounded, color: Color(0xFFE53935), size: 16),
+                  SizedBox(width: 8),
+                  Expanded(child: Text(
+                    'Version mismatch! Please download the correct v1.0.0 server.',
+                    style: TextStyle(color: Color(0xFFE53935), fontSize: 11)
+                  )),
+                ]),
+              ),
+            ],
             const SizedBox(height: 14),
 
 

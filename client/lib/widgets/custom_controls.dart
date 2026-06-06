@@ -82,7 +82,7 @@ Widget _rawControl(ControlItem item) {
   }
 }
 
-// â”€â”€ Button: gamepad / keyboard / mouse, momentary (press = down, release = up) â”€â”€
+// ── Button: gamepad / keyboard / mouse, momentary (press = down, release = up) ──
 
 class _CustomButton extends StatefulWidget {
   const _CustomButton({required this.item});
@@ -159,7 +159,7 @@ class _CustomButtonState extends State<_CustomButton> {
               : _label(item),
     );
 
-    // Icon + label â†’ circle with a caption underneath (built-in HUD look).
+    // Icon + label → circle with a caption underneath (built-in HUD look).
     final child = ((iconData != null || isAsset) && item.label.isNotEmpty)
         ? Column(mainAxisSize: MainAxisSize.min, children: [
             circle,
@@ -189,7 +189,7 @@ class _CustomButtonState extends State<_CustomButton> {
   }
 }
 
-// â”€â”€ Stick (fixed position, analog) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Stick (fixed position, analog) ────────────────────────────────────────────
 
 class _CustomStick extends StatefulWidget {
   const _CustomStick({required this.item});
@@ -278,7 +278,7 @@ class _StickPaint extends CustomPainter {
   bool shouldRepaint(_StickPaint o) => o.thumb != thumb || o.radius != radius;
 }
 
-// â”€â”€ Mouse pad (drag = move cursor, tap = left click) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Mouse pad (drag = move cursor, tap = left click) ──────────────────────────
 
 class _CustomMousePad extends StatefulWidget {
   const _CustomMousePad({required this.item});
@@ -343,7 +343,7 @@ class _CustomMousePadState extends State<_CustomMousePad> {
   }
 }
 
-// â”€â”€ Placeable steering wheel (drag left/right to steer â†’ left stick) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Placeable steering wheel (drag left/right to steer → left stick) ──────────
 
 class _CustomWheel extends StatefulWidget {
   const _CustomWheel({required this.item});

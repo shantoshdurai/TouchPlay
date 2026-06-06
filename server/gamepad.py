@@ -32,9 +32,19 @@ def _trig(v: float) -> int:
 
 
 class GamepadController:
-    def __init__(self):
+    def __init__(self, on_rumble=None):
         self.gamepad = vg.VX360Gamepad()
         self.gamepad.update()
+        self.on_rumble = on_rumble
+        if self.on_rumble:
+            try:
+                self.gamepad.register_notification(self._rumble_callback)
+            except AttributeError:
+                pass
+
+    def _rumble_callback(self, client, target, large_motor, small_motor, led_number, user_data):
+        if self.on_rumble:
+            self.on_rumble(large_motor, small_motor)
 
     def press_button(self, name: str):
         btn = BUTTON_MAP.get(name)

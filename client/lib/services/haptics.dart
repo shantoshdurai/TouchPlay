@@ -55,6 +55,31 @@ class Haptics {
   void medium() => _buzz(26, 170);   // mediumImpact
   void heavy()  => _buzz(45, 255);   // heavyImpact — button / pedal press
 
+  /// Handles continuous rumble from the server.
+  /// [largeMotor] and [smallMotor] are 0-255.
+  void rumble(int largeMotor, int smallMotor) {
+    if (!_hasVibrator) return;
+    final st = _strength;
+    if (st <= 0.0) return;
+    
+    final maxAmp = largeMotor > smallMotor ? largeMotor : smallMotor;
+    if (maxAmp == 0) {
+      Vibration.cancel();
+      return;
+    }
+    
+    final amplitude = (maxAmp * st).round().clamp(1, 255);
+    // Rumble packets come frequently; 100ms is a good continuous buffer.
+    final duration = 100;
+    try {
+      if (_hasAmplitude) {
+        Vibration.vibrate(duration: duration, amplitude: amplitude);
+      } else {
+        Vibration.vibrate(duration: duration);
+      }
+    } catch (_) {}
+  }
+
   /// A clearly-felt pulse used to preview the current strength while the user
   /// drags the Vibration slider in Settings.
   void preview() => _buzz(45, 255);

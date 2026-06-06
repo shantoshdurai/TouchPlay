@@ -2,9 +2,11 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:device_info_plus/device_info_plus.dart';
+import 'dart:math' as math;
 import 'package:flutter/widgets.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
+import 'haptics.dart';
 
 enum ConnectionState { connected, connecting, disconnected }
 
@@ -74,6 +76,8 @@ class WebSocketService with WidgetsBindingObserver {
   List<String> get candidateIps => _candidates();
   String? _serverVersion;
   String? get serverVersion => _serverVersion;
+  bool get versionMismatch => _serverVersion != null && _serverVersion != '1.0.0';
+  String? _deviceId;
 
   // Local co-op: which player slot the server assigned this phone (1..maxPlayers),
   // and whether the server turned us away because it's already full.
@@ -83,6 +87,8 @@ class WebSocketService with WidgetsBindingObserver {
   int? get playerNumber => _playerNumber;
   int? _maxPlayers;
   int? get maxPlayers => _maxPlayers;
+  int _connectedPlayers = 1;
+  int get connectedPlayers => _connectedPlayers;
   bool _serverFull = false;
   bool get serverFull => _serverFull;
 
@@ -110,6 +116,11 @@ class WebSocketService with WidgetsBindingObserver {
     WidgetsBinding.instance.addObserver(this);
     final prefs = await SharedPreferences.getInstance();
     _manualIp = prefs.getString('manual_ip');
+    _deviceId = prefs.getString('device_id');
+    if (_deviceId == null) {
+      _deviceId = '${DateTime.now().millisecondsSinceEpoch}-${math.Random().nextInt(1000000)}';
+      await prefs.setString('device_id', _deviceId!);
+    }
     
     try {
       final deviceInfo = DeviceInfoPlugin();
@@ -384,7 +395,14 @@ class WebSocketService with WidgetsBindingObserver {
         _playerNumber  = (data['player'] as num?)?.toInt();
         _maxPlayers    = (data['maxPlayers'] as num?)?.toInt();
         _playerCtrl.add(_playerNumber);
-        send({'type': 'client_info', 'phone_name': _deviceName});
+        send({'type': 'client_info', 'phone_name': _deviceName, 'device_id': _deviceId});
+      } else if (data['type'] == 'rumble') {
+        final large = (data['large'] as num?)?.toInt() ?? 0;
+        final small = (data['small'] as num?)?.toInt() ?? 0;
+        Haptics.instance.rumble(large, small);
+      } else if (data['type'] == 'player_count') {
+        _connectedPlayers = (data['count'] as num?)?.toInt() ?? 1;
+        _playerCtrl.add(_playerNumber); // trigger UI update
       } else if (data['type'] == 'server_full') {
         _serverFull   = true;
         _maxPlayers   = (data['max'] as num?)?.toInt();

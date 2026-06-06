@@ -11,6 +11,8 @@ void main() async {
     DeviceOrientation.landscapeLeft,
     DeviceOrientation.landscapeRight,
   ]);
+  
+  SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
 
   WakelockPlus.enable();
 
@@ -34,7 +36,7 @@ class FH6ControllerApp extends StatelessWidget {
           primary: Color(0xFF00D4FF),
           surface: Color(0xFF12121E),
         ),
-        dialogBackgroundColor: const Color(0xFF12121E),
+        dialogTheme: const DialogThemeData(backgroundColor: Color(0xFF12121E)),
       ),
       home: const ControllerScreen(),
     );

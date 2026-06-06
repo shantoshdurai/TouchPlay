@@ -70,7 +70,7 @@ class _LayoutEditorScreenState extends State<LayoutEditorScreen> {
           behavior: HitTestBehavior.opaque,
           onTap: () => setState(() => _selId = null))),
 
-        // Standard "Xbox" sticks are fixed â€” shown as faint locked hints, never
+        // Standard "Xbox" sticks are fixed — shown as faint locked hints, never
         // as editable controls (you customize everything around them).
         if (_layout.floatingSticks) ..._fixedStickHints(w, h),
 
@@ -87,7 +87,7 @@ class _LayoutEditorScreenState extends State<LayoutEditorScreen> {
     );
   }
 
-  // â”€â”€ Editable item â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Editable item ──────────────────────────────────────────────────────────
   Widget _editable(ControlItem item, double w, double h) {
     final fp = controlFootprint(item);
     final selected = item.id == _selId;
@@ -104,7 +104,7 @@ class _LayoutEditorScreenState extends State<LayoutEditorScreen> {
           item.y = (item.y + d.delta.dy / h).clamp(0.06, 0.94);
         }),
         child: Stack(clipBehavior: Clip.none, children: [
-          // Soft cyan glow on the SELECTED control only â€” clean, no clutter.
+          // Soft cyan glow on the SELECTED control only — clean, no clutter.
           if (selected)
             Positioned(left: -7, top: -7, right: -7, bottom: -7,
               child: IgnorePointer(child: Container(
@@ -123,9 +123,9 @@ class _LayoutEditorScreenState extends State<LayoutEditorScreen> {
     );
   }
 
-  // â”€â”€ Fixed floating-stick hints (Standard layout) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Fixed floating-stick hints (Standard layout) ─────────────────────────────
   // Non-interactive, faded markers on each half so the user knows the left/right
-  // sticks are there and fixed â€” they can't be selected, moved, resized or deleted.
+  // sticks are there and fixed — they can't be selected, moved, resized or deleted.
   List<Widget> _fixedStickHints(double w, double h) {
     Widget hint(bool left) => Positioned(
       left: left ? 0 : null,
@@ -146,7 +146,7 @@ class _LayoutEditorScreenState extends State<LayoutEditorScreen> {
               child: const Icon(Icons.lock_outline, color: Colors.white, size: 20),
             ),
             const SizedBox(height: 6),
-            Text(left ? 'LEFT STICK Â· FIXED' : 'RIGHT STICK Â· FIXED',
+            Text(left ? 'LEFT STICK · FIXED' : 'RIGHT STICK · FIXED',
               style: const TextStyle(color: Colors.white, fontSize: 9,
                 fontWeight: FontWeight.bold, letterSpacing: 1.2)),
           ]),
@@ -156,7 +156,7 @@ class _LayoutEditorScreenState extends State<LayoutEditorScreen> {
     return [hint(true), hint(false)];
   }
 
-  // â”€â”€ Top bar â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Top bar ──────────────────────────────────────────────────────────────────
   Widget _topBar() => Positioned(
     top: 0, left: 0, right: 0,
     child: Container(
@@ -233,7 +233,7 @@ class _LayoutEditorScreenState extends State<LayoutEditorScreen> {
     ),
   );
 
-  // â”€â”€ Inspector for the selected control â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Inspector for the selected control ───────────────────────────────────────
   Widget _inspector(ControlItem item) {
     final isButton = item.kind == ControlKind.button;
     final isSided  = item.kind == ControlKind.stick ||
@@ -389,7 +389,7 @@ class _LayoutEditorScreenState extends State<LayoutEditorScreen> {
     ]);
   }
 
-  // â”€â”€ Add sheet â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Add sheet ────────────────────────────────────────────────────────────────
   void _showAddSheet() {
     showModalBottomSheet(
       context: context,
@@ -417,15 +417,15 @@ class _LayoutEditorScreenState extends State<LayoutEditorScreen> {
             () => _addKind(ControlKind.mousepad)),
         _addTile(Icons.trip_origin, 'Steering wheel', 'Drag to steer (racing)',
             () => _addKind(ControlKind.wheel)),
-        _addTile(Icons.tune, 'Steering slider', 'Slide a knob â€” hands stay put',
+        _addTile(Icons.tune, 'Steering slider', 'Slide a knob — hands stay put',
             () => _addKind(ControlKind.steerSlider, action: 'steer:slider')),
         _addTile(Icons.screen_rotation, 'Steering tilt', 'Tilt the phone to steer',
             () => _addKind(ControlKind.steerTilt, action: 'steer:tilt')),
-        _addTile(Icons.chevron_left, 'Steer pad â€” left', 'Hold = full left lock',
+        _addTile(Icons.chevron_left, 'Steer pad — left', 'Hold = full left lock',
             () => _addKind(ControlKind.steerPad, action: 'steerpad:left')),
-        _addTile(Icons.chevron_right, 'Steer pad â€” right', 'Hold = full right lock',
+        _addTile(Icons.chevron_right, 'Steer pad — right', 'Hold = full right lock',
             () => _addKind(ControlKind.steerPad, action: 'steerpad:right')),
-        _addTile(Icons.filter_tilt_shift, 'Swing (Spider-Man)', 'Hold = swing Â· drag down = boost',
+        _addTile(Icons.filter_tilt_shift, 'Swing (Spider-Man)', 'Hold = swing · drag down = boost',
             () => _addKind(ControlKind.swing, action: 'swing')),
         _addTile(Icons.local_gas_station, 'Gas pedal', 'Hold = full throttle (RT)',
             () => _addKind(ControlKind.pedal, action: 'pedal:gas')),
@@ -443,7 +443,7 @@ class _LayoutEditorScreenState extends State<LayoutEditorScreen> {
     onTap: () { Navigator.of(context).pop(); onTap(); },
   );
 
-  // â”€â”€ Binding picker â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Binding picker ───────────────────────────────────────────────────────────
   void _pickBinding(ControlItem item) {
     final keyCtrl = TextEditingController();
     // Rebinding drops the preset icon/label so the button reflects its new binding.
@@ -473,7 +473,7 @@ class _LayoutEditorScreenState extends State<LayoutEditorScreen> {
               for (final b in ['A','B','X','Y','LB','RB','LS','RS','START','BACK','GUIDE'])
                 _chip(b, 'gp:$b', set),
               _chip('â†‘', 'gp:DPAD_UP', set), _chip('â†“', 'gp:DPAD_DOWN', set),
-              _chip('â†', 'gp:DPAD_LEFT', set), _chip('â†’', 'gp:DPAD_RIGHT', set),
+              _chip('â†', 'gp:DPAD_LEFT', set), _chip('→', 'gp:DPAD_RIGHT', set),
             ]),
             const SizedBox(height: 14),
             _grpLabel('Keyboard'),

@@ -5,7 +5,7 @@ import 'package:sensors_plus/sensors_plus.dart';
 import '../services/websocket_service.dart';
 import '../services/haptics.dart';
 
-// â”€â”€ Shared theme tokens (match the monochrome "Claude" controller design) â”€â”€â”€â”€â”€â”€
+// ── Shared theme tokens (match the monochrome "Claude" controller design) ──────
 // Quiet at rest (so they don't pull the eye off the game), cyan on press.
 const _kAccent  = Color(0xFF00D4FF);
 const _kRest    = Color(0x66FFFFFF); // neutral border at rest
@@ -28,11 +28,11 @@ void _sendSteer(double x) => WebSocketService.instance.send({
     });
 
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-//  STEERING â€” WHEEL (drag left / right, analog)
+//  STEERING — WHEEL (drag left / right, analog)
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 /// Fills its parent box and paints a steering wheel anchored bottom-left.
-/// Grab anywhere in the zone and drag horizontally â€” the wheel rotates and the
+/// Grab anywhere in the zone and drag horizontally — the wheel rotates and the
 /// left stick follows. Release to straighten. Uses a single captured pointer so
 /// it coexists with the pedals / buttons (independent fingers).
 class SteeringWheel extends StatefulWidget {
@@ -63,7 +63,7 @@ class _SteeringWheelState extends State<SteeringWheel> {
     final raw = ((e.localPosition.dx - _startX) / _range).clamp(-1.0, 1.0);
     setState(() {
       _value = _steerCurve(raw);
-      _angle = raw * (pi * 0.55); // up to ~100Â° of visual turn
+      _angle = raw * (pi * 0.55); // up to ~100° of visual turn
     });
     _sendSteer(_value);
   }
@@ -143,7 +143,7 @@ class _WheelPainter extends CustomPainter {
 }
 
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-//  STEERING â€” L / R PADS (digital full-lock)
+//  STEERING — L / R PADS (digital full-lock)
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 class SteeringPad extends StatefulWidget {
@@ -198,7 +198,7 @@ class _SteeringPadState extends State<SteeringPad> {
 }
 
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-//  PEDALS â€” hold = full (gas â†’ RT, brake â†’ LT)
+//  PEDALS — hold = full (gas → RT, brake → LT)
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 class RacePedal extends StatefulWidget {
@@ -211,7 +211,7 @@ class RacePedal extends StatefulWidget {
     required this.height,
   });
 
-  final bool gas; // true â†’ right_trigger (RT), false â†’ left_trigger (LT)
+  final bool gas; // true → right_trigger (RT), false → left_trigger (LT)
   final String label;
   final IconData icon;
   final double width, height;
@@ -295,7 +295,7 @@ class _RacePedalState extends State<RacePedal> {
 }
 
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-//  RACE BUTTON â€” momentary gamepad button with icon (+ optional label)
+//  RACE BUTTON — momentary gamepad button with icon (+ optional label)
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 class RaceButton extends StatefulWidget {
@@ -381,10 +381,10 @@ class _RaceButtonState extends State<RaceButton> {
 }
 
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-//  STEERING â€” SLIDER (center knob, drag left / right, springs back to center)
+//  STEERING — SLIDER (center knob, drag left / right, springs back to center)
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
-/// A horizontal track with a knob. Rest your thumb on it and slide left/right â€”
+/// A horizontal track with a knob. Rest your thumb on it and slide left/right —
 /// analog and continuous, hands stay put. Releases back to center so the car
 /// straightens. The whole zone is the touch area so your thumb can roam.
 class SteeringSlider extends StatefulWidget {
@@ -486,13 +486,13 @@ class _SliderPainter extends CustomPainter {
 }
 
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-//  STEERING â€” TILT (phone accelerometer)
+//  STEERING — TILT (phone accelerometer)
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 /// Tilt the phone like a wheel to steer. Reads the accelerometer, subtracts a
 /// recenter baseline, applies sensitivity + dead-zone. Always active while in
 /// tilt mode. Shows a level bar + a Recenter button. If the axis/sign ever feels
-/// wrong on a given phone, flip [_axis]/[_sign] â€” that's the only tuning knob.
+/// wrong on a given phone, flip [_axis]/[_sign] — that's the only tuning knob.
 class SteeringTilt extends StatefulWidget {
   const SteeringTilt({super.key, this.width = 240});
   final double width; // level-bar width (resizable when placed in a custom layout)
