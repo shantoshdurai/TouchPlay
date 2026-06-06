@@ -275,7 +275,7 @@ class _ControllerScreenState extends State<ControllerScreen> {
             Positioned.fill(
               child: Image.memory(
                 _streamFrame!,
-                fit: BoxFit.cover,
+                fit: WebSocketService.instance.sensitivity.streamFitStretch ? BoxFit.fill : BoxFit.contain,
                 gaplessPlayback: true,
               ),
             )
@@ -372,6 +372,7 @@ class _ControllerScreenState extends State<ControllerScreen> {
               steerMode: _forzaSteer,
               onSteerMode: (m) => _setSteer(m),
               onEditCurrent: _openEditCurrent,
+              streamOn: _streamOn,
             ),
           if (_showGamesMenu)
             _GamesDropdown(
@@ -990,12 +991,14 @@ class _SettingsPanel extends StatefulWidget {
     required this.steerMode,
     required this.onSteerMode,
     required this.onEditCurrent,
+    required this.streamOn,
   });
   final VoidCallback onClose;
   final String profileId;
   final String steerMode;
   final ValueChanged<String> onSteerMode;
   final VoidCallback onEditCurrent;
+  final bool streamOn;
   @override
   State<_SettingsPanel> createState() => _SettingsPanelState();
 }
@@ -1011,6 +1014,7 @@ class _SettingsPanelState extends State<_SettingsPanel> {
   late double _brakeSize;
   late double _hbSize;
   late bool _streamHq;
+  late bool _streamFit;
 
   @override
   void initState() {
@@ -1026,6 +1030,7 @@ class _SettingsPanelState extends State<_SettingsPanel> {
     _brakeSize  = s.brakeSize;
     _hbSize     = s.handbrakeSize;
     _streamHq   = s.streamHighQuality;
+    _streamFit  = s.streamFitStretch;
   }
 
   @override
@@ -1073,7 +1078,21 @@ class _SettingsPanelState extends State<_SettingsPanel> {
                     padding: const EdgeInsets.fromLTRB(16, 2, 16, 16),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
-                      children: forza ? _forzaSettings() : _standardSettings(),
+                      children: [
+                        ...forza ? _forzaSettings() : _standardSettings(),
+                        if (widget.streamOn) ...[
+                          _section('Stream Settings'),
+                          _switchRow('USB High Quality', _streamHq, (v) {
+                            setState(() => _streamHq = v);
+                            WebSocketService.instance.sensitivity.streamHighQuality = v;
+                            WebSocketService.instance.send({'type': 'set_stream_quality', 'high_quality': v});
+                          }),
+                          _switchRow('Resolution Scale Fit (Stretch)', _streamFit, (v) {
+                            setState(() => _streamFit = v);
+                            WebSocketService.instance.sensitivity.streamFitStretch = v;
+                          }),
+                        ],
+                      ],
                     ),
                   ),
                 ),

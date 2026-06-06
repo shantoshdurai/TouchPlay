@@ -35,6 +35,7 @@ class SensitivitySettings {
   double brakeSize;
   double handbrakeSize;
   bool   streamHighQuality;
+  bool   streamFitStretch;
 
   SensitivitySettings({
     this.stickSensitivity      = 1.0,
@@ -48,6 +49,7 @@ class SensitivitySettings {
     this.brakeSize             = 1.0,
     this.handbrakeSize         = 1.0,
     this.streamHighQuality     = false,
+    this.streamFitStretch      = false,
   });
 }
 
@@ -166,6 +168,7 @@ class WebSocketService with WidgetsBindingObserver {
     s.brakeSize             = d('brake', s.brakeSize);
     s.handbrakeSize         = d('hb',    s.handbrakeSize);
     s.streamHighQuality     = prefs.getBool('${_sKey}_hq') ?? s.streamHighQuality;
+    s.streamFitStretch      = prefs.getBool('${_sKey}_fit') ?? s.streamFitStretch;
   }
 
   Future<void> saveSensitivity() async {
@@ -182,6 +185,7 @@ class WebSocketService with WidgetsBindingObserver {
     await prefs.setDouble('${_sKey}_brake', s.brakeSize);
     await prefs.setDouble('${_sKey}_hb',    s.handbrakeSize);
     await prefs.setBool  ('${_sKey}_hq',    s.streamHighQuality);
+    await prefs.setBool  ('${_sKey}_fit',   s.streamFitStretch);
   }
 
   @override
