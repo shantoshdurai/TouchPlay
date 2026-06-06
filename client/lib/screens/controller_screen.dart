@@ -1499,7 +1499,7 @@ class _ConnChipState extends State<_ConnChip> with SingleTickerProviderStateMixi
               w: connected && _latency != null ? FontWeight.w600 : FontWeight.normal),
           if (dev != null && dev.hasTemp) ...[
             _sep(),
-            _stat('${dev.tempC.toStringAsFixed(0)}°', _heatColor(dev.tempC)),
+            _stat('${dev.tempC.toStringAsFixed(0)}\u00B0', _heatColor(dev.tempC)),
           ],
           if (dev != null && dev.hasBattery) ...[
             _sep(),
