@@ -44,6 +44,7 @@ def set_high_quality(enabled: bool):
 
 async def capture_loop():
     """Continuously capture the screen and push JPEG frames to all clients."""
+    global _clients
     try:
         import mss
         from PIL import Image
@@ -79,7 +80,7 @@ async def capture_loop():
                         dead.add(ws)
                 _clients -= dead
 
-            except Exception:
-                pass
+            except Exception as e:
+                print("CAPTURE ERROR:", e)
 
             await asyncio.sleep(1 / StreamSettings.fps)
