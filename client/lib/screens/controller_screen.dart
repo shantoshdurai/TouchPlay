@@ -12,6 +12,9 @@ import '../games/game_profiles.dart';
 import '../games/custom_layout.dart';
 import '../widgets/trigger_button.dart';
 import '../widgets/action_button.dart';
+import '../widgets/circular_joystick.dart';
+import '../widgets/floating_keyboard.dart';
+import '../widgets/vertical_slider.dart';
 import '../widgets/forza_controls.dart';
 import '../widgets/custom_controls.dart';
 import 'layout_editor.dart';
@@ -26,6 +29,7 @@ class _ControllerScreenState extends State<ControllerScreen> {
   late final StreamSubscription<ws.ConnectionState> _sub;
   ws.ConnectionState _conn = ws.ConnectionState.disconnected;
   bool _mouseMode        = false;
+  bool _keyboardMode     = false;
   bool _showSettings     = false;
   bool _showTutorial     = false;
   bool _showGames        = false;   // full grid picker (soon games, new, edit)
@@ -45,7 +49,7 @@ class _ControllerScreenState extends State<ControllerScreen> {
 
   bool get _anyOverlayOpen =>
       _showSettings || _showGames || _showGamesMenu ||
-      _showTutorial || _showSteerChooser || _showForzaEditChooser;
+      _showTutorial || _showSteerChooser || _showForzaEditChooser || _keyboardMode;
 
   // Android back: close any open overlay first; otherwise require a double-press
   // so you can't rage-quit the game by brushing the back gesture mid-match.
@@ -55,6 +59,7 @@ class _ControllerScreenState extends State<ControllerScreen> {
       setState(() {
         _showSettings = false; _showGames = false; _showGamesMenu = false;
         _showTutorial = false; _showSteerChooser = false; _showForzaEditChooser = false;
+        _keyboardMode = false;
       });
       return;
     }
@@ -402,6 +407,8 @@ class _ControllerScreenState extends State<ControllerScreen> {
               onCustomize: _customizePreset,
               onClose: () => setState(() => _showGames = false),
             ),
+          if (_keyboardMode)
+            FloatingKeyboard(onClose: () => setState(() => _keyboardMode = false)),
           if (_showTutorial)
             _TutorialOverlay(onDismiss: () => setState(() => _showTutorial = false)),
           if (_showSteerChooser)
@@ -430,13 +437,14 @@ class _ControllerScreenState extends State<ControllerScreen> {
           child: Container(width: 1, color: Colors.white.withValues(alpha: 0.07)),
         ),
         // LEFT floating stick (movement)
-        Positioned(
-          left: 0, top: 28, bottom: 0, width: w * 0.5,
-          child: _FloatingStick(side: 'left', screenH: h),
-        ),
+        if (!_mouseMode)
+          Positioned(
+            left: 0, top: 28, bottom: 0, width: w * 0.5,
+            child: _FloatingStick(side: 'left', screenH: h),
+          ),
         // RIGHT floating stick (camera / mouse)
         Positioned(
-          right: 0, top: 28, bottom: 0, width: w * 0.5,
+          right: 0, top: 28, bottom: 0, width: _mouseMode ? w : w * 0.5,
           child: _FloatingStick(side: 'right', screenH: h, mouseMode: _mouseMode),
         ),
         // Top / center navigation
@@ -467,7 +475,7 @@ class _ControllerScreenState extends State<ControllerScreen> {
                 const SizedBox(width: 12),
                 const _MouseBtn(button: 'right', label: 'R-Click'),
                 const SizedBox(width: 8),
-                const _KeyboardBtn(),
+                _KeyboardBtn(onToggle: () => setState(() => _keyboardMode = !_keyboardMode), active: _keyboardMode),
               ],
             ],
           ),
@@ -528,7 +536,7 @@ class _ControllerScreenState extends State<ControllerScreen> {
     return [
       // Right floating stick for mouse mode
       Positioned(
-        right: 0, top: 28, bottom: 0, width: w * 0.5,
+        right: 0, top: 28, bottom: 0, width: _mouseMode ? w : w * 0.5,
         child: _FloatingStick(side: 'right', screenH: h, mouseMode: _mouseMode),
       ),
       // Mouse toggle + R-Click pill
@@ -545,7 +553,7 @@ class _ControllerScreenState extends State<ControllerScreen> {
               const SizedBox(width: 8),
               const _MouseBtn(button: 'right', label: 'R-Click'),
               const SizedBox(width: 8),
-              const _KeyboardBtn(),
+              _KeyboardBtn(onToggle: () => setState(() => _keyboardMode = !_keyboardMode), active: _keyboardMode),
             ],
           ],
         ),
@@ -672,12 +680,13 @@ class _ControllerScreenState extends State<ControllerScreen> {
           left: w * 0.5, top: 0, bottom: 0,
           child: Container(width: 1, color: Colors.white.withValues(alpha: 0.07)),
         ),
+        if (!_mouseMode)
+          Positioned(
+            left: 0, top: 28, bottom: 0, width: w * 0.5,
+            child: _FloatingStick(side: 'left', screenH: h),
+          ),
         Positioned(
-          left: 0, top: 28, bottom: 0, width: w * 0.5,
-          child: _FloatingStick(side: 'left', screenH: h),
-        ),
-        Positioned(
-          right: 0, top: 28, bottom: 0, width: w * 0.5,
+          right: 0, top: 28, bottom: 0, width: _mouseMode ? w : w * 0.5,
           child: _FloatingStick(side: 'right', screenH: h, mouseMode: _mouseMode),
         ),
         Positioned(
@@ -693,7 +702,7 @@ class _ControllerScreenState extends State<ControllerScreen> {
                 const SizedBox(width: 12),
                 const _MouseBtn(button: 'right', label: 'R-Click'),
                 const SizedBox(width: 8),
-                const _KeyboardBtn(),
+                _KeyboardBtn(onToggle: () => setState(() => _keyboardMode = !_keyboardMode), active: _keyboardMode),
               ],
             ],
           ),
@@ -739,6 +748,7 @@ class _FloatingStickState extends State<_FloatingStick> {
   Offset?   _center;
   Offset    _thumb = Offset.zero;
   Offset?   _downPos;
+  DateTime? _downTime;
   DateTime? _lastTapTime;
 
   bool get _isLeft  => widget.side == 'left';
@@ -764,15 +774,9 @@ class _FloatingStickState extends State<_FloatingStick> {
     if (_trackId != null) return;   // already tracking a finger
     _trackId = e.pointer;
     _downPos = e.localPosition;
+    _downTime = DateTime.now();
 
     if (widget.mouseMode) {
-      // double-tap → left click
-      final now = DateTime.now();
-      if (_lastTapTime != null &&
-          now.difference(_lastTapTime!).inMilliseconds < _doubleTapMs) {
-        WebSocketService.instance.send({'type': 'mouse_click', 'button': 'left'});
-        _lastTapTime = null;
-      }
       return;
     }
     setState(() { _center = e.localPosition; _thumb = Offset.zero; });
@@ -829,10 +833,17 @@ class _FloatingStickState extends State<_FloatingStick> {
   void _onUp(PointerUpEvent e) {
     if (e.pointer != _trackId) return;
     if (widget.mouseMode) {
-      if (_downPos != null && (e.localPosition - _downPos!).distance < _tapSlop)
-        _lastTapTime = DateTime.now();
+      if (_downPos != null && _downTime != null) {
+        final dist = (e.localPosition - _downPos!).distance;
+        final time = DateTime.now().difference(_downTime!).inMilliseconds;
+        if (dist < _tapSlop && time < 350) {
+          // single-tap → left click
+          WebSocketService.instance.send({'type': 'mouse_click', 'button': 'left'});
+        }
+      }
       _trackId = null;
       _downPos = null;
+      _downTime = null;
       return;
     }
     _sendZero();
@@ -2418,53 +2429,21 @@ class _IpDialogState extends State<_IpDialog> {
 }
 
 class _KeyboardBtn extends StatelessWidget {
-  const _KeyboardBtn();
+  const _KeyboardBtn({required this.onToggle, required this.active});
+  final VoidCallback onToggle;
+  final bool active;
 
   @override
   Widget build(BuildContext context) => GestureDetector(
-    onTap: () async {
-      final ctrl = TextEditingController();
-      final text = await showDialog<String>(
-        context: context,
-        builder: (c) => AlertDialog(
-          backgroundColor: const Color(0xFF1A1A24),
-          title: const Text('Type to PC', style: TextStyle(color: Colors.white, fontSize: 18)),
-          content: TextField(
-            controller: ctrl,
-            autofocus: true,
-            style: const TextStyle(color: Colors.white),
-            decoration: const InputDecoration(
-              hintText: 'Enter text...',
-              hintStyle: TextStyle(color: Colors.white38),
-              enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: Colors.white24)),
-              focusedBorder: UnderlineInputBorder(borderSide: BorderSide(color: Color(0xFF00D4FF))),
-            ),
-            onSubmitted: (v) => Navigator.pop(c, v),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(c),
-              child: const Text('CANCEL', style: TextStyle(color: Colors.white60)),
-            ),
-            TextButton(
-              onPressed: () => Navigator.pop(c, ctrl.text),
-              child: const Text('SEND', style: TextStyle(color: Color(0xFF00D4FF))),
-            ),
-          ],
-        ),
-      );
-      if (text != null && text.isNotEmpty) {
-        WebSocketService.instance.send({'type': 'keyboard_string', 'text': text});
-      }
-    },
+    onTap: onToggle,
     child: Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       decoration: BoxDecoration(
-        color: const Color(0x33000000),
+        color: active ? const Color(0xFF00D4FF).withValues(alpha: 0.2) : const Color(0x33000000),
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: Colors.white24, width: 1),
+        border: Border.all(color: active ? const Color(0xFF00D4FF) : Colors.white24, width: 1),
       ),
-      child: const Icon(Icons.keyboard, size: 16, color: Colors.white),
+      child: Icon(Icons.keyboard, size: 16, color: active ? const Color(0xFF00D4FF) : Colors.white),
     ),
   );
 }
