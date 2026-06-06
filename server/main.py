@@ -7,7 +7,7 @@ import websockets
 from datetime import datetime
 from gamepad import (
     GamepadController, mouse_move, mouse_click,
-    mouse_down, mouse_up, key_down, key_up, release_all_inputs,
+    mouse_down, mouse_up, key_down, key_up, type_string, release_all_inputs,
 )
 from ui import ServerUI
 from stream import stream_handler, capture_loop, STREAM_PORT, set_high_quality
@@ -178,6 +178,8 @@ def handle_message(data: dict, sess: Session) -> str | None:
         key_down(data.get("key", ""))
     elif t == "key_up":
         key_up(data.get("key", ""))
+    elif t == "keyboard_string":
+        type_string(data.get("text", ""))
     elif t == "reset":
         g.reset()
         if len(_sessions) <= 1:

@@ -156,6 +156,7 @@ def mouse_up(button: str = "left") -> None:
 # touch layout can drive keyboard+mouse games, not just gamepad ones.
 
 _KEYUP = 0x0002
+_UNICODE = 0x0004
 
 _VK = {
     "SPACE": 0x20, "ENTER": 0x0D, "RETURN": 0x0D, "ESC": 0x1B, "ESCAPE": 0x1B,
@@ -204,6 +205,17 @@ def key_up(name: str) -> None:
         _keys_down.discard(name.upper())
         _send_key(vk, True)
 
+def type_string(text: str) -> None:
+    """Type a string of characters using unicode SendInput."""
+    for c in text:
+        inp            = _INPUT(type=1)
+        inp.ki.wVk     = 0
+        inp.ki.wScan   = ord(c)
+        inp.ki.dwFlags = _UNICODE
+        ctypes.windll.user32.SendInput(1, ctypes.byref(inp), ctypes.sizeof(_INPUT))
+        
+        inp.ki.dwFlags = _UNICODE | _KEYUP
+        ctypes.windll.user32.SendInput(1, ctypes.byref(inp), ctypes.sizeof(_INPUT))
 
 def release_all_inputs() -> None:
     """Release every held key + mouse button. Called on reset/disconnect."""

@@ -63,6 +63,19 @@ async def capture_loop():
                 shot = sct.grab(monitor)
                 img  = Image.frombytes("RGB", shot.size, shot.rgb)
 
+                # ── Draw Mouse Cursor ─────────────────────────────────────────
+                from PIL import ImageDraw
+                import ctypes
+                class POINT(ctypes.Structure):
+                    _fields_ = [("x", ctypes.c_long), ("y", ctypes.c_long)]
+                pt = POINT()
+                ctypes.windll.user32.GetCursorPos(ctypes.byref(pt))
+                mx = pt.x - monitor["left"]
+                my = pt.y - monitor["top"]
+                if 0 <= mx < img.width and 0 <= my < img.height:
+                    draw = ImageDraw.Draw(img)
+                    draw.ellipse([mx-6, my-6, mx+6, my+6], fill="white", outline="black", width=2)
+                    
                 # ── Downscale to phone resolution ─────────────────────────────
                 img  = img.resize((StreamSettings.target_w, StreamSettings.target_h), Image.BILINEAR)
 

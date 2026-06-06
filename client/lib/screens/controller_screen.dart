@@ -465,6 +465,8 @@ class _ControllerScreenState extends State<ControllerScreen> {
               if (_mouseMode) ...[
                 const SizedBox(width: 12),
                 const _MouseBtn(button: 'right', label: 'R-Click'),
+                const SizedBox(width: 8),
+                const _KeyboardBtn(),
               ],
             ],
           ),
@@ -539,8 +541,10 @@ class _ControllerScreenState extends State<ControllerScreen> {
               onToggle: () => setState(() => _mouseMode = !_mouseMode),
             ),
             if (_mouseMode) ...[
-              const SizedBox(width: 12),
+              const SizedBox(width: 8),
               const _MouseBtn(button: 'right', label: 'R-Click'),
+              const SizedBox(width: 8),
+              const _KeyboardBtn(),
             ],
           ],
         ),
@@ -687,6 +691,8 @@ class _ControllerScreenState extends State<ControllerScreen> {
               if (_mouseMode) ...[
                 const SizedBox(width: 12),
                 const _MouseBtn(button: 'right', label: 'R-Click'),
+                const SizedBox(width: 8),
+                const _KeyboardBtn(),
               ],
             ],
           ),
@@ -2391,3 +2397,56 @@ class _IpDialogState extends State<_IpDialog> {
     );
   }
 }
+
+class _KeyboardBtn extends StatelessWidget {
+  const _KeyboardBtn();
+
+  @override
+  Widget build(BuildContext context) => GestureDetector(
+    onTap: () async {
+      final ctrl = TextEditingController();
+      final text = await showDialog<String>(
+        context: context,
+        builder: (c) => AlertDialog(
+          backgroundColor: const Color(0xFF1A1A24),
+          title: const Text('Type to PC', style: TextStyle(color: Colors.white, fontSize: 18)),
+          content: TextField(
+            controller: ctrl,
+            autofocus: true,
+            style: const TextStyle(color: Colors.white),
+            decoration: const InputDecoration(
+              hintText: 'Enter text...',
+              hintStyle: TextStyle(color: Colors.white38),
+              enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: Colors.white24)),
+              focusedBorder: UnderlineInputBorder(borderSide: BorderSide(color: Color(0xFF00D4FF))),
+            ),
+            onSubmitted: (v) => Navigator.pop(c, v),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(c),
+              child: const Text('CANCEL', style: TextStyle(color: Colors.white60)),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(c, ctrl.text),
+              child: const Text('SEND', style: TextStyle(color: Color(0xFF00D4FF))),
+            ),
+          ],
+        ),
+      );
+      if (text != null && text.isNotEmpty) {
+        WebSocketService.instance.send({'type': 'keyboard_string', 'text': text});
+      }
+    },
+    child: Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      decoration: BoxDecoration(
+        color: const Color(0x33000000),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: Colors.white24, width: 1),
+      ),
+      child: const Icon(Icons.keyboard, size: 16, color: Colors.white),
+    ),
+  );
+}
+
