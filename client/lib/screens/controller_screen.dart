@@ -32,6 +32,7 @@ class _ControllerScreenState extends State<ControllerScreen> {
   bool _showGamesMenu    = false;   // quick-switch dropdown from the pill
   bool _showSteerChooser = false;
   bool _showForzaEditChooser = false; // "edit which steering?" before the editor
+  bool _hideHud          = false;
 
   // ── Game stream ──────────────────────────────────────────────────────────────
   bool        _streamOn   = false;
@@ -282,52 +283,86 @@ class _ControllerScreenState extends State<ControllerScreen> {
             _BgGlow(),
 
           // 2. Active game layout
-          ...(custom != null
-              ? _customChildren(custom, w, h)
-              : isSpider
-                  ? _spidermanChildren(w, h)
-                  : isOvercooked
-                      ? _overcookedChildren(w, h)
-                  : isForza
-                      ? _forzaChildren(w, h)
-                      : _standardChildren(w, h)),
+          if (!_hideHud) ...[
+            ...(custom != null
+                ? _customChildren(custom, w, h)
+                : isSpider
+                    ? _spidermanChildren(w, h)
+                    : isOvercooked
+                        ? _overcookedChildren(w, h)
+                    : isForza
+                        ? _forzaChildren(w, h)
+                        : _standardChildren(w, h)),
 
-          // 3. Connection chip (top-left)
-          Positioned(
-            top: 0, left: 8,
-            child: SafeArea(
-              bottom: false,
-              child: Padding(
-                padding: const EdgeInsets.only(top: 4),
-                child: _ConnChip(state: _conn, onTap: () => _showDialog(context)),
+            // 3. Connection chip (top-left)
+            Positioned(
+              top: 0, left: 8,
+              child: SafeArea(
+                bottom: false,
+                child: Padding(
+                  padding: const EdgeInsets.only(top: 4),
+                  child: _ConnChip(state: _conn, onTap: () => _showDialog(context)),
+                ),
               ),
             ),
-          ),
+          ],
 
-          // 4. Top-right: Games tab + Settings
-          Positioned(
-            top: 0, right: 8,
-            child: SafeArea(
-              bottom: false,
-              child: Padding(
-                padding: const EdgeInsets.only(top: 4),
-                child: Row(mainAxisSize: MainAxisSize.min, children: [
-                  _GamesBtn(
-                    icon: custom != null ? Icons.tune : disp.icon,
-                    label: custom != null ? custom.name : disp.name,
-                    onTap: () => setState(() => _showGamesMenu = !_showGamesMenu),
-                  ),
-                  const SizedBox(width: 8),
-                  _StreamBtn(
-                    active: _streamOn,
-                    onTap: _toggleStream,
-                  ),
-                  const SizedBox(width: 8),
-                  _SettingsBtn(onTap: () => setState(() => _showSettings = !_showSettings)),
-                ]),
+          // 4. Top-right: Games tab + Settings + Visibility
+          if (!_hideHud)
+            Positioned(
+              top: 0, right: 8,
+              child: SafeArea(
+                bottom: false,
+                child: Padding(
+                  padding: const EdgeInsets.only(top: 4),
+                  child: Row(mainAxisSize: MainAxisSize.min, children: [
+                    _GamesBtn(
+                      icon: custom != null ? Icons.tune : disp.icon,
+                      label: custom != null ? custom.name : disp.name,
+                      onTap: () => setState(() => _showGamesMenu = !_showGamesMenu),
+                    ),
+                    const SizedBox(width: 8),
+                    _StreamBtn(
+                      active: _streamOn,
+                      onTap: _toggleStream,
+                    ),
+                    const SizedBox(width: 8),
+                    GestureDetector(
+                      onTap: () => setState(() => _hideHud = true),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                        decoration: BoxDecoration(
+                          color: const Color(0x99000000),
+                          borderRadius: BorderRadius.circular(20),
+                          border: Border.all(color: Colors.white12, width: 1),
+                        ),
+                        child: const Icon(Icons.visibility_off, color: Colors.white60, size: 16),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    _SettingsBtn(onTap: () => setState(() => _showSettings = !_showSettings)),
+                  ]),
+                ),
               ),
             ),
-          ),
+
+          if (_hideHud)
+            Positioned(
+              top: 8, right: 8,
+              child: SafeArea(
+                child: GestureDetector(
+                  onTap: () => setState(() => _hideHud = false),
+                  child: Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: const BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: Color(0x11FFFFFF), // Extremely faint ghost button
+                    ),
+                    child: const Icon(Icons.visibility, color: Color(0x44FFFFFF), size: 24),
+                  ),
+                ),
+              ),
+            ),
 
           // 5. Overlays
           if (_showSettings)
