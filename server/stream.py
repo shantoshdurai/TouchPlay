@@ -46,7 +46,7 @@ async def capture_loop():
     """Continuously capture the screen and push JPEG frames to all clients."""
     global _clients
     try:
-        import mss
+        import dxcam
         import cv2
         import ctypes
         import numpy as np
@@ -58,62 +58,65 @@ async def capture_loop():
     pt = POINT()
 
     try:
-        with mss.mss() as sct:
-            monitor = sct.monitors[1]
-            while True:
-                if not _clients:
-                    await asyncio.sleep(0.05)
+        camera = dxcam.create(output_idx=0, output_color="BGR")
+        camera.start(target_fps=60, video_mode=True)
+        
+        while True:
+            if not _clients:
+                await asyncio.sleep(0.05)
+                continue
+
+            try:
+                # ── Capture ───────────────────────────────────────────────────
+                frame = camera.get_latest_frame()
+                if frame is None:
+                    await asyncio.sleep(0.005)
                     continue
 
-                try:
-                    # ── Capture ───────────────────────────────────────────────────
-                    shot = sct.grab(monitor)
-                    frame = np.array(shot) # BGRA format
+                h, w, _ = frame.shape
 
-                    h, w, _ = frame.shape
+                # ── Downscale & Cursor ─────────────────────────────────────────
+                resized = cv2.resize(frame, (StreamSettings.target_w, StreamSettings.target_h), interpolation=cv2.INTER_LINEAR)
+                ctypes.windll.user32.GetCursorPos(ctypes.byref(pt))
+                
+                mx = int((pt.x / w) * StreamSettings.target_w)
+                my = int((pt.y / h) * StreamSettings.target_h)
+                
+                if 0 <= mx < StreamSettings.target_w and 0 <= my < StreamSettings.target_h:
+                    cv2.circle(resized, (mx, my), 5, (255, 255, 255), 2)
+                    cv2.circle(resized, (mx, my), 6, (0, 0, 0), 1)
 
-                    # ── Downscale & Cursor ─────────────────────────────────────────
-                    resized = cv2.resize(frame, (StreamSettings.target_w, StreamSettings.target_h), interpolation=cv2.INTER_LINEAR)
-                    ctypes.windll.user32.GetCursorPos(ctypes.byref(pt))
-                    # Adjust for monitor offset
-                    mx = int(((pt.x - monitor["left"]) / w) * StreamSettings.target_w)
-                    my = int(((pt.y - monitor["top"]) / h) * StreamSettings.target_h)
-                    
-                    if 0 <= mx < StreamSettings.target_w and 0 <= my < StreamSettings.target_h:
-                        cv2.circle(resized, (mx, my), 5, (255, 255, 255), 2)
-                        cv2.circle(resized, (mx, my), 6, (0, 0, 0), 1)
+                # ── JPEG compress ─────────────────────────────────────────────
+                encode_param = [int(cv2.IMWRITE_JPEG_QUALITY), StreamSettings.quality]
+                _, encoded = cv2.imencode('.jpg', resized, encode_param)
+                frame_bytes = encoded.tobytes()
 
-                    # ── JPEG compress ─────────────────────────────────────────────
-                    # Convert BGRA to BGR to save bytes and ensure cv2 compatibility
-                    if resized.shape[2] == 4:
-                        resized = cv2.cvtColor(resized, cv2.COLOR_BGRA2BGR)
-                        
-                    encode_param = [int(cv2.IMWRITE_JPEG_QUALITY), StreamSettings.quality]
-                    _, encoded = cv2.imencode('.jpg', resized, encode_param)
-                    frame_bytes = encoded.tobytes()
+                # ── Push to all connected clients ──────────────────────────────
+                dead = set()
+                max_send_time = 0
+                import time
+                for ws in list(_clients):
+                    try:
+                        t0 = time.time()
+                        await asyncio.wait_for(ws.send(frame_bytes), timeout=1.0)
+                        send_duration = time.time() - t0
+                        max_send_time = max(max_send_time, send_duration)
+                    except Exception:
+                        dead.add(ws)
+                _clients -= dead
 
-                    # ── Push to all connected clients ──────────────────────────────
-                    dead = set()
-                    max_send_time = 0
-                    import time
-                    for ws in list(_clients):
-                        try:
-                            t0 = time.time()
-                            await asyncio.wait_for(ws.send(frame_bytes), timeout=1.0)
-                            send_duration = time.time() - t0
-                            max_send_time = max(max_send_time, send_duration)
-                        except Exception:
-                            dead.add(ws)
-                    _clients -= dead
+            except Exception as e:
+                print("CAPTURE ERROR:", e)
 
-                except Exception as e:
-                    print("CAPTURE ERROR:", e)
-
-                base_sleep = 1 / StreamSettings.fps
-                if max_send_time > 0.02:
-                    drain_sleep = min(max_send_time * 2, 0.25)
-                    await asyncio.sleep(base_sleep + drain_sleep)
-                else:
-                    await asyncio.sleep(base_sleep)
+            # ── Smart Bufferbloat Throttling ──────────────────────────────
+            base_sleep = 1 / StreamSettings.fps
+            if max_send_time > 0.02:
+                drain_sleep = min(max_send_time * 2, 0.25)
+                await asyncio.sleep(base_sleep + drain_sleep)
+            else:
+                await asyncio.sleep(base_sleep)
     except Exception as e:
         print("Fatal stream error:", e)
+    finally:
+        if 'camera' in locals():
+            camera.stop()
