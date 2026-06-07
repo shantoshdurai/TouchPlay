@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import '../services/websocket_service.dart';
 import '../services/haptics.dart';
 
-const _neutralColor = Color(0x66FFFFFF); // Semi-transparent white border
+const _neutralColor = Color(0x1AFFFFFF); // Extremely subtle border
 
 class ActionButton extends StatefulWidget {
   const ActionButton({
@@ -78,10 +78,10 @@ class _ActionButtonState extends State<ActionButton>
           height: widget.size,
           decoration: BoxDecoration(
             shape: BoxShape.circle,
-            color: _pressed ? Colors.white24 : Colors.transparent,
+            color: _pressed ? Colors.white24 : const Color(0x22000000),
             border: Border.all(
               color: _pressed ? Colors.white : _neutralColor,
-              width: 1.5,
+              width: 0.5,
             ),
           ),
           child: Center(
@@ -92,9 +92,9 @@ class _ActionButtonState extends State<ActionButton>
                 : Text(
                     widget.label ?? widget.button,
                     style: TextStyle(
-                      color: Colors.white,
-                      fontSize: widget.size * 0.4,
-                      fontWeight: FontWeight.w500,
+                      color: Colors.white70,
+                      fontSize: widget.size * 0.35,
+                      fontWeight: FontWeight.w400,
                     ),
                   ),
           ),
@@ -227,14 +227,14 @@ class _DPadBtnState extends State<_DPadBtn> with SingleTickerProviderStateMixin 
           height: widget.size,
           decoration: BoxDecoration(
             shape: BoxShape.circle,
-            color: _pressed ? Colors.white24 : Colors.transparent,
+            color: _pressed ? Colors.white24 : const Color(0x22000000),
             border: Border.all(
               color: _pressed ? Colors.white : _neutralColor,
-              width: 1.5,
+              width: 0.5,
             ),
           ),
           child: Center(
-            child: Icon(widget.icon, color: Colors.white, size: widget.size * 0.7),
+            child: Icon(widget.icon, color: Colors.white70, size: widget.size * 0.55),
           ),
         ),
       ),
@@ -289,18 +289,18 @@ class _CenterButtonState extends State<CenterButton> {
         height: widget.size,
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(widget.size / 2),
-          color: _pressed ? Colors.white24 : Colors.transparent,
+          color: _pressed ? Colors.white24 : const Color(0x22000000),
           border: Border.all(
             color: _pressed ? Colors.white : _neutralColor,
-            width: 1.5,
+            width: 0.5,
           ),
         ),
         child: Center(
           child: widget.icon != null
-              ? Icon(widget.icon, color: Colors.white, size: widget.size * 0.6)
+              ? Icon(widget.icon, color: Colors.white70, size: widget.size * 0.5)
               : Text(
                   widget.label ?? '',
-                  style: TextStyle(color: Colors.white, fontSize: widget.size * 0.4),
+                  style: TextStyle(color: Colors.white70, fontSize: widget.size * 0.35),
                 ),
         ),
       ),
@@ -346,17 +346,17 @@ class _GuideButtonState extends State<GuideButton> {
         height: widget.size,
         decoration: BoxDecoration(
           shape: BoxShape.circle,
-          color: _pressed ? Colors.white24 : Colors.transparent,
+          color: _pressed ? Colors.white24 : const Color(0x22000000),
           border: Border.all(
             color: _pressed ? Colors.white : _neutralColor,
-            width: 1.5,
+            width: 0.5,
           ),
         ),
         child: Center(
           child: Icon(
             Icons.games, // generic gamepad icon
-            color: Colors.white,
-            size: widget.size * 0.50,
+            color: Colors.white70,
+            size: widget.size * 0.40,
           ),
         ),
       ),

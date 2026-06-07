@@ -1084,19 +1084,20 @@ class _SettingsPanelState extends State<_SettingsPanel> {
                 _header(),
                 Flexible(
                   child: SingleChildScrollView(
-                    padding: const EdgeInsets.fromLTRB(16, 2, 16, 16),
+                    padding: const EdgeInsets.fromLTRB(12, 2, 12, 12),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         ...forza ? _forzaSettings() : _standardSettings(),
                         if (widget.streamOn) ...[
+                          const SizedBox(height: 8),
                           _section('Stream Settings'),
                           _switchRow('USB High Quality', _streamHq, (v) {
                             setState(() => _streamHq = v);
                             WebSocketService.instance.sensitivity.streamHighQuality = v;
                             WebSocketService.instance.send({'type': 'set_stream_quality', 'high_quality': v});
                           }),
-                          _switchRow('Resolution Scale Fit (Stretch)', _streamFit, (v) {
+                          _switchRow('Resolution Fit (Stretch)', _streamFit, (v) {
                             setState(() => _streamFit = v);
                             WebSocketService.instance.sensitivity.streamFitStretch = v;
                           }),
@@ -1137,14 +1138,6 @@ class _SettingsPanelState extends State<_SettingsPanel> {
       setState(() => _mouse = v);
       WebSocketService.instance.sensitivity.mouseSensitivity = v;
     }, fmt: (v) => v.toStringAsFixed(0)),
-    const SizedBox(height: 16),
-    _section('Stream'),
-    _switchRow('High Quality (USB Only)', _streamHq, (v) {
-      setState(() => _streamHq = v);
-      WebSocketService.instance.sensitivity.streamHighQuality = v;
-      WebSocketService.instance.send({'type': 'set_stream_quality', 'high_quality': v});
-    }),
-    const SizedBox(height: 16),
     _section('General'),
     _vibrationRow(),
     const SizedBox(height: 18),
@@ -1186,14 +1179,6 @@ class _SettingsPanelState extends State<_SettingsPanel> {
       setState(() => _hbSize = v);
       WebSocketService.instance.sensitivity.handbrakeSize = v;
     }),
-    const SizedBox(height: 16),
-    _section('Stream'),
-    _switchRow('High Quality (USB Only)', _streamHq, (v) {
-      setState(() => _streamHq = v);
-      WebSocketService.instance.sensitivity.streamHighQuality = v;
-      WebSocketService.instance.send({'type': 'set_stream_quality', 'high_quality': v});
-    }),
-    const SizedBox(height: 16),
     _section('General'),
     _vibrationRow(),
     const SizedBox(height: 18),
@@ -1304,10 +1289,10 @@ class _SettingsPanelState extends State<_SettingsPanel> {
   );
 
   Widget _section(String title) => Padding(
-    padding: const EdgeInsets.only(top: 6, bottom: 4),
+    padding: const EdgeInsets.only(top: 8, bottom: 2),
     child: Text(title.toUpperCase(), style: const TextStyle(
-      color: Color(0xFF00D4FF), fontSize: 10,
-      fontWeight: FontWeight.bold, letterSpacing: 2)),
+      color: Color(0xFF00D4FF), fontSize: 9,
+      fontWeight: FontWeight.bold, letterSpacing: 1.5)),
   );
 
   // Vibration strength sits right alongside the sensitivity/size sliders. 0% =
@@ -1328,27 +1313,26 @@ class _SettingsPanelState extends State<_SettingsPanel> {
   Widget _sliderRow(String label, double value, double min, double max,
       ValueChanged<double> onChanged, {String Function(double)? fmt}) =>
     Padding(
-      padding: const EdgeInsets.symmetric(vertical: 6),
+      padding: const EdgeInsets.symmetric(vertical: 4),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Row(children: [
-          Text(label, style: const TextStyle(color: Colors.white, fontSize: 12)),
+          Text(label, style: const TextStyle(color: Colors.white70, fontSize: 11)),
           const Spacer(),
           Text(fmt != null ? fmt(value) : value.toStringAsFixed(1),
             style: const TextStyle(
-              color: Color(0xFF00D4FF), fontSize: 12, fontWeight: FontWeight.w700)),
+              color: Color(0xFF00D4FF), fontSize: 11, fontWeight: FontWeight.w600)),
         ]),
-        const SizedBox(height: 2),
         SizedBox(
-          height: 32,
+          height: 24,
           child: SliderTheme(
             data: SliderThemeData(
-              trackHeight: 4,
-              thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 10, elevation: 2),
-              overlayShape: const RoundSliderOverlayShape(overlayRadius: 20),
+              trackHeight: 2,
+              thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6, elevation: 0),
+              overlayShape: const RoundSliderOverlayShape(overlayRadius: 14),
               activeTrackColor: const Color(0xFF00D4FF),
               inactiveTrackColor: const Color(0xFF20202C),
               thumbColor: Colors.white,
-              overlayColor: const Color(0x2200D4FF),
+              overlayColor: const Color(0x1100D4FF),
             ),
             child: Slider(value: value, min: min, max: max, onChanged: onChanged),
           ),
@@ -1358,19 +1342,22 @@ class _SettingsPanelState extends State<_SettingsPanel> {
 
   Widget _switchRow(String label, bool value, ValueChanged<bool> onChanged) =>
     Padding(
-      padding: const EdgeInsets.symmetric(vertical: 6),
+      padding: const EdgeInsets.symmetric(vertical: 4),
       child: Row(children: [
-        Text(label, style: const TextStyle(color: Colors.white, fontSize: 12)),
+        Text(label, style: const TextStyle(color: Colors.white70, fontSize: 11)),
         const Spacer(),
         SizedBox(
-          height: 24,
-          child: Switch(
-            value: value,
-            onChanged: onChanged,
-            activeColor: const Color(0xFF00D4FF),
-            activeTrackColor: const Color(0x4400D4FF),
-            inactiveThumbColor: Colors.white54,
-            inactiveTrackColor: const Color(0xFF20202C),
+          height: 20,
+          child: Transform.scale(
+            scale: 0.8,
+            child: Switch(
+              value: value,
+              onChanged: onChanged,
+              activeColor: const Color(0xFF00D4FF),
+              activeTrackColor: const Color(0x3300D4FF),
+              inactiveThumbColor: Colors.white54,
+              inactiveTrackColor: const Color(0xFF20202C),
+            ),
           ),
         ),
       ]),

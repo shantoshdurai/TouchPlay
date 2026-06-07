@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import '../services/websocket_service.dart';
 import '../services/haptics.dart';
 
-const _neutralColor = Color(0x66FFFFFF);
+const _neutralColor = Color(0x1AFFFFFF);
 
 /// Circular trigger button (LT / RT) — styled like ActionButton
 class TriggerBar extends StatefulWidget {
@@ -83,19 +83,19 @@ class _TriggerBarState extends State<TriggerBar>
           height: size,
           decoration: BoxDecoration(
             shape: BoxShape.circle,
-            color: _pressed ? Colors.white24 : Colors.transparent,
+            color: _pressed ? Colors.white24 : const Color(0x22000000),
             border: Border.all(
               color: _pressed ? Colors.white : _neutralColor,
-              width: 1.5,
+              width: 0.5,
             ),
           ),
           child: Center(
             child: Text(
               widget.label,
               style: TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.w500,
-                fontSize: size * 0.4,
+                color: Colors.white70,
+                fontWeight: FontWeight.w400,
+                fontSize: size * 0.35,
               ),
             ),
           ),
