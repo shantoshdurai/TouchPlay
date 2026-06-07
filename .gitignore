@@ -21,6 +21,16 @@ dist/
 build_temp/
 *.spec
 
+# Release artifacts (attach to GitHub Releases, don't commit)
+*.zip
+*.apk
+
+# Temp folders
+temp_*/
+
+# Ad-hoc test scripts
+test_*.py
+
 # General
 *.log
 .DS_Store
