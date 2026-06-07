@@ -1,15 +1,11 @@
 import 'dart:async';
 import 'dart:typed_data';
+import 'dart:ui' as ui;
 import 'package:web_socket_channel/web_socket_channel.dart';
 import 'package:web_socket_channel/io.dart';
 
 /// Connects to the PC stream server on port 8767 and exposes the latest
-/// JPEG frame as a [Uint8List] via [frameStream].
-///
-/// Usage:
-///   StreamService.instance.connect('192.168.1.5');
-///   StreamService.instance.frameStream → Stream<Uint8List>
-///   StreamService.instance.disconnect();
+/// frame as a hardware-decoded [ui.Image] via [frameStream].
 class StreamService {
   StreamService._();
   static final instance = StreamService._();
@@ -17,10 +13,10 @@ class StreamService {
   static const _streamPort = 8767;
 
   WebSocketChannel? _channel;
-  final _controller = StreamController<Uint8List>.broadcast();
+  final _controller = StreamController<ui.Image>.broadcast();
   bool _connected = false;
 
-  Stream<Uint8List> get frameStream => _controller.stream;
+  Stream<ui.Image> get frameStream => _controller.stream;
   bool get isConnected => _connected;
 
   Future<void> connect(String serverIp) async {
@@ -34,9 +30,13 @@ class StreamService {
       _channel!.stream.listen(
         (data) {
           if (data is List<int>) {
-            _controller.add(Uint8List.fromList(data));
+            ui.decodeImageFromList(Uint8List.fromList(data), (image) {
+              _controller.add(image);
+            });
           } else if (data is Uint8List) {
-            _controller.add(data);
+            ui.decodeImageFromList(data, (image) {
+              _controller.add(image);
+            });
           }
         },
         onDone: () => _connected = false,

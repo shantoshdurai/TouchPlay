@@ -1,5 +1,5 @@
 import 'dart:async';
-import 'dart:typed_data';
+import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -38,8 +38,8 @@ class _ControllerScreenState extends State<ControllerScreen> {
 
   // ── Game stream ──────────────────────────────────────────────────────────────
   bool        _streamOn   = false;
-  Uint8List?  _streamFrame;
-  StreamSubscription<Uint8List>? _streamSub;
+  ui.Image?   _streamFrame;
+  StreamSubscription<ui.Image>? _streamSub;
   String _profileId  = 'standard';   // 'standard' | 'forza' | 'custom:<id>'
   String _forzaSteer = 'wheel';      // 'wheel' | 'pads'
   List<CustomLayout> _customLayouts = [];
@@ -159,7 +159,9 @@ class _ControllerScreenState extends State<ControllerScreen> {
     if (_streamOn) {
       _streamSub?.cancel();
       StreamService.instance.disconnect();
+      final oldFrame = _streamFrame;
       setState(() { _streamOn = false; _streamFrame = null; });
+      oldFrame?.dispose();
     } else {
       final ip = WebSocketService.instance.currentIp;
       if (ip == null) return; // not connected — nothing to stream
@@ -169,7 +171,13 @@ class _ControllerScreenState extends State<ControllerScreen> {
         'high_quality': WebSocketService.instance.sensitivity.streamHighQuality,
       });
       _streamSub = StreamService.instance.frameStream.listen((frame) {
-        if (mounted) setState(() => _streamFrame = frame);
+        if (mounted) {
+          final oldFrame = _streamFrame;
+          setState(() => _streamFrame = frame);
+          oldFrame?.dispose();
+        } else {
+          frame.dispose();
+        }
       });
       setState(() => _streamOn = true);
     }
@@ -252,6 +260,7 @@ class _ControllerScreenState extends State<ControllerScreen> {
     _streamSub?.cancel();
     StreamService.instance.disconnect();
     DeviceStats.instance.stop();
+    _streamFrame?.dispose();
     super.dispose();
   }
 
@@ -276,10 +285,9 @@ class _ControllerScreenState extends State<ControllerScreen> {
           // 1. Background — game stream if active, else standard glow
           if (_streamOn && _streamFrame != null)
             Positioned.fill(
-              child: Image.memory(
-                _streamFrame!,
+              child: RawImage(
+                image: _streamFrame!,
                 fit: WebSocketService.instance.sensitivity.streamFitStretch ? BoxFit.fill : BoxFit.contain,
-                gaplessPlayback: true,
               ),
             )
           else
