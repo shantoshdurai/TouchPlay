@@ -93,9 +93,15 @@ async def capture_loop():
 
                 # ── Push to all connected clients ──────────────────────────────
                 dead = set()
+                max_send_time = 0
+                import time
                 for ws in list(_clients):
                     try:
-                        await ws.send(frame_bytes)
+                        t0 = time.time()
+                        # Use wait_for to prevent a completely stalled network from freezing the server
+                        await asyncio.wait_for(ws.send(frame_bytes), timeout=1.0)
+                        send_duration = time.time() - t0
+                        max_send_time = max(max_send_time, send_duration)
                     except Exception:
                         dead.add(ws)
                 _clients -= dead
@@ -103,6 +109,15 @@ async def capture_loop():
             except Exception as e:
                 print("CAPTURE ERROR:", e)
 
-            await asyncio.sleep(1 / StreamSettings.fps)
+            # ── Dynamic Network Throttling ────────────────────────────────
+            # If the network took a long time to accept the frame, the TCP buffer
+            # is likely full (Bufferbloat). We dynamically sleep longer to drop 
+            # frames and let the network queue drain, keeping latency near zero!
+            base_sleep = 1 / StreamSettings.fps
+            if max_send_time > 0.02:  # If send took >20ms
+                drain_sleep = min(max_send_time * 2, 0.25) # Cap max sleep to 250ms
+                await asyncio.sleep(base_sleep + drain_sleep)
+            else:
+                await asyncio.sleep(base_sleep)
     finally:
         cam.stop()
