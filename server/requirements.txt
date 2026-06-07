@@ -1,5 +1,6 @@
 vgamepad
 websockets
 rich
-dxcam
+mss
+numpy
 opencv-python
