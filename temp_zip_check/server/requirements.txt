@@ -1,0 +1,5 @@
+vgamepad
+websockets
+rich
+mss
+Pillow

@@ -1,5 +1,5 @@
 vgamepad
 websockets
 rich
-mss
-Pillow
+dxcam
+opencv-python

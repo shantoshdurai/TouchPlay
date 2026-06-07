@@ -46,13 +46,20 @@ async def capture_loop():
     """Continuously capture the screen and push JPEG frames to all clients."""
     global _clients
     try:
-        import mss
-        from PIL import Image
+        import dxcam
+        import cv2
+        import ctypes
     except ImportError:
-        return   # mss/Pillow not installed — stream silently unavailable
+        return   # dxcam/opencv not installed — stream silently unavailable
 
-    with mss.mss() as sct:
-        monitor = sct.monitors[1]   # primary monitor
+    class POINT(ctypes.Structure):
+        _fields_ = [("x", ctypes.c_long), ("y", ctypes.c_long)]
+    pt = POINT()
+
+    cam = dxcam.create(output_color="BGR")
+    cam.start(target_fps=60)
+
+    try:
         while True:
             if not _clients:
                 await asyncio.sleep(0.05)
@@ -60,35 +67,35 @@ async def capture_loop():
 
             try:
                 # ── Capture ───────────────────────────────────────────────────
-                shot = sct.grab(monitor)
-                img  = Image.frombytes("RGB", shot.size, shot.rgb)
+                frame = cam.get_latest_frame()
+                if frame is None:
+                    await asyncio.sleep(0.005)
+                    continue
+
+                h, w, _ = frame.shape
+
+                # ── Downscale to phone resolution ─────────────────────────────
+                resized = cv2.resize(frame, (StreamSettings.target_w, StreamSettings.target_h), interpolation=cv2.INTER_LINEAR)
 
                 # ── Draw Mouse Cursor ─────────────────────────────────────────
-                from PIL import ImageDraw
-                import ctypes
-                class POINT(ctypes.Structure):
-                    _fields_ = [("x", ctypes.c_long), ("y", ctypes.c_long)]
-                pt = POINT()
                 ctypes.windll.user32.GetCursorPos(ctypes.byref(pt))
-                mx = pt.x - monitor["left"]
-                my = pt.y - monitor["top"]
-                if 0 <= mx < img.width and 0 <= my < img.height:
-                    draw = ImageDraw.Draw(img)
-                    draw.ellipse([mx-6, my-6, mx+6, my+6], fill="white", outline="black", width=2)
-                    
-                # ── Downscale to phone resolution ─────────────────────────────
-                img  = img.resize((StreamSettings.target_w, StreamSettings.target_h), Image.BILINEAR)
+                mx = int((pt.x / w) * StreamSettings.target_w)
+                my = int((pt.y / h) * StreamSettings.target_h)
+                
+                if 0 <= mx < StreamSettings.target_w and 0 <= my < StreamSettings.target_h:
+                    cv2.circle(resized, (mx, my), 5, (255, 255, 255), 2)
+                    cv2.circle(resized, (mx, my), 6, (0, 0, 0), 1)
 
                 # ── JPEG compress to bytes ─────────────────────────────────────
-                buf  = io.BytesIO()
-                img.save(buf, format="JPEG", quality=StreamSettings.quality, optimize=False)
-                frame = buf.getvalue()
+                encode_param = [int(cv2.IMWRITE_JPEG_QUALITY), StreamSettings.quality]
+                _, encoded = cv2.imencode('.jpg', resized, encode_param)
+                frame_bytes = encoded.tobytes()
 
                 # ── Push to all connected clients ──────────────────────────────
                 dead = set()
                 for ws in list(_clients):
                     try:
-                        await ws.send(frame)
+                        await ws.send(frame_bytes)
                     except Exception:
                         dead.add(ws)
                 _clients -= dead
@@ -97,3 +104,5 @@ async def capture_loop():
                 print("CAPTURE ERROR:", e)
 
             await asyncio.sleep(1 / StreamSettings.fps)
+    finally:
+        cam.stop()

@@ -45,7 +45,7 @@ echo.
 :: 2/4  Python packages
 ::----------------------------------------------------------
 echo   [2/4] Installing Python packages...
-echo          vgamepad  websockets  rich  mss  Pillow
+echo          vgamepad  websockets  rich  dxcam  opencv-python
 python -m pip install -r server\requirements.txt --quiet 2>nul
 if %errorlevel% neq 0 (
     echo   [..] Retrying with --user...
