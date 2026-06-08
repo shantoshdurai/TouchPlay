@@ -351,14 +351,14 @@ CustomLayout cloneForza([String steer = 'wheel']) {
       _b(ControlKind.pedal, 0.90, 0.70, 'pedal:gas',   100, 'RT',   'gas'),
       _b(ControlKind.pedal, 0.77, 0.74, 'pedal:brake',  92, 'LT', 'brake'),
       // Handbrake (drift) = A, just left of the pedals
-      _b(ControlKind.button, 0.66, 0.78, 'gp:A', 64, 'A', 'hbrake'),
+      _b(ControlKind.button, 0.66, 0.78, 'gp:A', 64, 'HBRAKE', 'hbrake'),
       // Secondary cluster (upper-right): CAM=RB, REWIND=Y, HORN=RS
-      _b(ControlKind.button, 0.78, 0.22, 'gp:RB', 56, 'RB',    'cam'),
-      _b(ControlKind.button, 0.86, 0.22, 'gp:Y',  56, 'Y', 'rewind'),
-      _b(ControlKind.button, 0.93, 0.22, 'gp:RS', 56, 'RS',   'horn'),
+      _b(ControlKind.button, 0.78, 0.22, 'gp:RB', 56, 'CAM',    'cam'),
+      _b(ControlKind.button, 0.86, 0.22, 'gp:Y',  56, 'REWIND', 'rewind'),
+      _b(ControlKind.button, 0.93, 0.22, 'gp:RS', 56, 'HORN',   'horn'),
       // Menu cluster (upper-left): SELECT=A, BACK=B (answer in-game prompts)
-      _b(ControlKind.button, 0.07, 0.22, 'gp:A', 56, 'A', 'select'),
-      _b(ControlKind.button, 0.14, 0.22, 'gp:B', 56, 'B',   'close'),
+      _b(ControlKind.button, 0.07, 0.22, 'gp:A', 56, 'SELECT', 'select'),
+      _b(ControlKind.button, 0.14, 0.22, 'gp:B', 56, 'BACK',   'close'),
       // Top-center utility (icon-only): MAP, ANNA, PHOTO, PAUSE
       _b(ControlKind.button, 0.40, 0.10, 'gp:BACK',      46, '', 'map'),
       _b(ControlKind.button, 0.47, 0.10, 'gp:DPAD_DOWN', 46, '', 'anna'),

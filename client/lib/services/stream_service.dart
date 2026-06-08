@@ -1,11 +1,18 @@
 import 'dart:async';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
+import 'package:flutter/foundation.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 import 'package:web_socket_channel/io.dart';
 
 /// Connects to the PC stream server on port 8767 and exposes the latest
-/// frame as a hardware-decoded [ui.Image] via [frameStream].
+/// frame as a hardware-decoded [ui.Image] via [frame].
+///
+/// The frame is published through a [ValueNotifier] (not a Stream + setState)
+/// so the UI can rebuild ONLY the video layer — wrapped in a RepaintBoundary —
+/// instead of the entire controller HUD on every decoded frame. At 60fps that
+/// is the difference between repainting one texture vs. re-walking the whole
+/// button/stick widget tree 60 times a second.
 class StreamService {
   StreamService._();
   static final instance = StreamService._();
@@ -13,10 +20,18 @@ class StreamService {
   static const _streamPort = 8767;
 
   WebSocketChannel? _channel;
-  final _controller = StreamController<ui.Image>.broadcast();
+
+  /// Latest decoded frame. Listeners (a ValueListenableBuilder in the UI) repaint
+  /// in isolation. The previous frame is disposed automatically when replaced.
+  final ValueNotifier<ui.Image?> frame = ValueNotifier<ui.Image?>(null);
+
   bool _connected = false;
 
-  Stream<ui.Image> get frameStream => _controller.stream;
+  // Prevent decode backlog: if a new frame arrives while we're still decoding
+  // the previous one, we skip the stale frame rather than queuing it.
+  bool _decoding = false;
+  Uint8List? _pending; // latest frame waiting if we were busy
+
   bool get isConnected => _connected;
 
   Future<void> connect(String serverIp) async {
@@ -29,17 +44,18 @@ class StreamService {
 
       _channel!.stream.listen(
         (data) {
-          if (data is List<int>) {
-            ui.decodeImageFromList(Uint8List.fromList(data), (image) {
-              _controller.add(image);
-            });
-          } else if (data is Uint8List) {
-            ui.decodeImageFromList(data, (image) {
-              _controller.add(image);
-            });
+          final bytes = data is Uint8List
+              ? data
+              : Uint8List.fromList(data as List<int>);
+
+          if (_decoding) {
+            // Already busy — remember only the freshest frame, drop older ones.
+            _pending = bytes;
+            return;
           }
+          _decodeAndEmit(bytes);
         },
-        onDone: () => _connected = false,
+        onDone:  () => _connected = false,
         onError: (_) => _connected = false,
         cancelOnError: true,
       );
@@ -48,9 +64,50 @@ class StreamService {
     }
   }
 
+  /// Decode one frame using Flutter's modern async pipeline (hardware-backed on
+  /// Android) then immediately check if a newer frame arrived while we were busy.
+  Future<void> _decodeAndEmit(Uint8List bytes) async {
+    _decoding = true;
+    try {
+      final image = await _decodeFrame(bytes);
+      // Publish the new frame and dispose the one it replaces.
+      final old = frame.value;
+      frame.value = image;
+      old?.dispose();
+    } catch (_) {
+      // Bad frame — skip silently, don't crash the stream.
+    } finally {
+      _decoding = false;
+      // If a fresher frame came in while we decoded, process it now.
+      final next = _pending;
+      if (next != null) {
+        _pending = null;
+        _decodeAndEmit(next);
+      }
+    }
+  }
+
+  /// Modern Flutter image decode — uses ImmutableBuffer + ImageDescriptor
+  /// which is async, off the UI thread, and hardware-accelerated on Android.
+  static Future<ui.Image> _decodeFrame(Uint8List bytes) async {
+    final buffer     = await ui.ImmutableBuffer.fromUint8List(bytes);
+    final descriptor = await ui.ImageDescriptor.encoded(buffer);
+    final codec      = await descriptor.instantiateCodec();
+    final frameInfo  = await codec.getNextFrame();
+    buffer.dispose();
+    descriptor.dispose();
+    codec.dispose();
+    return frameInfo.image;
+  }
+
   void disconnect() {
     _channel?.sink.close();
-    _channel = null;
+    _channel  = null;
     _connected = false;
+    _decoding  = false;
+    _pending   = null;
+    final old = frame.value;
+    frame.value = null;
+    old?.dispose();
   }
 }

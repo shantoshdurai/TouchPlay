@@ -10,7 +10,7 @@ from gamepad import (
     mouse_down, mouse_up, key_down, key_up, type_string, release_all_inputs,
 )
 from ui import ServerUI
-from stream import stream_handler, capture_loop, STREAM_PORT, set_high_quality
+from stream import stream_handler, capture_loop, STREAM_PORT, set_quality, set_high_quality
 
 def get_best_ip() -> str:
     """Return USB tethering IP (192.168.42.x) if available, else best LAN IP."""
@@ -191,7 +191,11 @@ def handle_message(data: dict, sess: Session) -> str | None:
         if phone_name and _ui:
             _ui.player_set_name(sess.player, phone_name)
     elif t == "set_stream_quality":
-        set_high_quality(data.get("high_quality", False))
+        level = data.get("quality")
+        if level in ('360p', '480p', '720p', 'screen'):
+            set_quality(level)
+        else:
+            set_high_quality(data.get("high_quality", False))
     return None
 
 
@@ -229,6 +233,14 @@ async def _grace_cleanup(ip: str, sess: Session):
 # ── WebSocket handler ─────────────────────────────────────────────────────────
 
 async def handler(websocket):
+    # Kill Nagle batching so button-press JSON arrives without TCP delay.
+    try:
+        _sock = websocket.transport.get_extra_info('socket')
+        if _sock:
+            import socket as _socket
+            _sock.setsockopt(_socket.IPPROTO_TCP, _socket.TCP_NODELAY, 1)
+    except Exception:
+        pass
     client_ip = websocket.remote_address[0]
 
     task = _cleanup_tasks.pop(client_ip, None)

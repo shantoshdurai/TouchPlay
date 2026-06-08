@@ -34,7 +34,7 @@ class SensitivitySettings {
   double gasSize;
   double brakeSize;
   double handbrakeSize;
-  bool   streamHighQuality;
+  String streamQuality;    // '360p' | '480p' | '720p'
   bool   streamFitStretch;
 
   SensitivitySettings({
@@ -42,13 +42,13 @@ class SensitivitySettings {
     this.rightStickSensitivity = 1.8,
     this.deadZone              = 0.08,
     this.mouseSensitivity      = 18.0,
-    this.vibration             = true,
-    this.vibrationStrength     = 0.85,
-    this.joyRadius             = 1.0,   // scale factor: 1.0 = same size as left stick
+    this.vibration             = false,
+    this.vibrationStrength     = 0.0,
+    this.joyRadius             = 1.0,
     this.gasSize               = 1.0,
     this.brakeSize             = 1.0,
     this.handbrakeSize         = 1.0,
-    this.streamHighQuality     = false,
+    this.streamQuality         = '480p',
     this.streamFitStretch      = false,
   });
 }
@@ -167,8 +167,11 @@ class WebSocketService with WidgetsBindingObserver {
     s.gasSize               = d('gas',   s.gasSize);
     s.brakeSize             = d('brake', s.brakeSize);
     s.handbrakeSize         = d('hb',    s.handbrakeSize);
-    s.streamHighQuality     = prefs.getBool('${_sKey}_hq') ?? s.streamHighQuality;
-    s.streamFitStretch      = prefs.getBool('${_sKey}_fit') ?? s.streamFitStretch;
+    // Migrate old bool key → quality string if present.
+    final oldHq = prefs.getBool('${_sKey}_hq');
+    s.streamQuality     = prefs.getString('${_sKey}_quality')
+        ?? (oldHq == true ? '720p' : '480p');
+    s.streamFitStretch  = prefs.getBool('${_sKey}_fit') ?? s.streamFitStretch;
   }
 
   Future<void> saveSensitivity() async {
@@ -184,8 +187,8 @@ class WebSocketService with WidgetsBindingObserver {
     await prefs.setDouble('${_sKey}_gas',   s.gasSize);
     await prefs.setDouble('${_sKey}_brake', s.brakeSize);
     await prefs.setDouble('${_sKey}_hb',    s.handbrakeSize);
-    await prefs.setBool  ('${_sKey}_hq',    s.streamHighQuality);
-    await prefs.setBool  ('${_sKey}_fit',   s.streamFitStretch);
+    await prefs.setString('${_sKey}_quality', s.streamQuality);
+    await prefs.setBool  ('${_sKey}_fit',     s.streamFitStretch);
   }
 
   @override

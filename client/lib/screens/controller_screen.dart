@@ -38,12 +38,12 @@ class _ControllerScreenState extends State<ControllerScreen> {
 
   // ── Game stream ──────────────────────────────────────────────────────────────
   bool        _streamOn   = false;
-  ui.Image?   _streamFrame;
-  StreamSubscription<ui.Image>? _streamSub;
+  double?     _savedVibForStream;
   String _profileId  = 'standard';   // 'standard' | 'forza' | 'custom:<id>'
   String _forzaSteer = 'wheel';      // 'wheel' | 'pads'
   List<CustomLayout> _customLayouts = [];
   DateTime? _lastBackPress;          // back-button "press again to exit" guard
+  OverlayEntry? _toast;              // current fade-in/out toast (replaced, not stacked)
 
   bool get _anyOverlayOpen =>
       _showSettings || _showGames || _showGamesMenu ||
@@ -64,21 +64,40 @@ class _ControllerScreenState extends State<ControllerScreen> {
     final now = DateTime.now();
     if (_lastBackPress == null || now.difference(_lastBackPress!) > const Duration(seconds: 2)) {
       _lastBackPress = now;
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-        content: Text('Press back again to exit'),
-        duration: Duration(milliseconds: 1800),
-        behavior: SnackBarBehavior.floating,
-      ));
+      _showToast('Press back again to exit');
     } else {
       SystemNavigator.pop();
     }
+  }
+
+  // Lightweight transparent toast that fades in, holds, fades out — fits the
+  // dark monochrome design instead of the blocky white Material SnackBar.
+  void _showToast(String message) {
+    _toast?.remove();
+    final entry = OverlayEntry(
+      builder: (_) => _Toast(message: message),
+    );
+    _toast = entry;
+    Overlay.of(context).insert(entry);
+    // Self-remove after the widget has fully faded out.
+    Future.delayed(const Duration(milliseconds: 2400), () {
+      if (_toast == entry) {
+        entry.remove();
+        _toast = null;
+      }
+    });
   }
 
   @override
   void initState() {
     super.initState();
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
-    _sub = WebSocketService.instance.stateStream.listen((s) => setState(() => _conn = s));
+    _sub = WebSocketService.instance.stateStream.listen((s) {
+      setState(() => _conn = s);
+      // If the server drops while mirroring, stop the dead stream and restore
+      // vibration — otherwise the toggle stays "on" showing a frozen frame.
+      if (s != ws.ConnectionState.connected && _streamOn) _toggleStream();
+    });
     WebSocketService.instance.init();
     DeviceStats.instance.start();
     _initPrefs();
@@ -157,27 +176,36 @@ class _ControllerScreenState extends State<ControllerScreen> {
   // ── Game stream toggle ───────────────────────────────────────────────────────
   void _toggleStream() {
     if (_streamOn) {
-      _streamSub?.cancel();
+      // Restore vibration strength that was in effect before streaming.
+      if (_savedVibForStream != null) {
+        final s = WebSocketService.instance.sensitivity;
+        s.vibrationStrength = _savedVibForStream!;
+        s.vibration = _savedVibForStream! > 0.01;
+        _savedVibForStream = null;
+      }
       StreamService.instance.disconnect();
-      final oldFrame = _streamFrame;
-      setState(() { _streamOn = false; _streamFrame = null; });
-      oldFrame?.dispose();
+      setState(() => _streamOn = false);
     } else {
+      // Guard: screen mirroring needs a live server. A stale discovered/manual
+      // IP can linger in currentIp even when nothing is listening, so check the
+      // real connection state — not just "do we have an IP".
       final ip = WebSocketService.instance.currentIp;
-      if (ip == null) return; // not connected — nothing to stream
+      if (_conn != ws.ConnectionState.connected || ip == null) {
+        _showToast('Connect to the PC server first to mirror the screen');
+        return;
+      }
+      // Only now that we're actually starting — zero vibration while streaming
+      // video to avoid interference (restored when streaming stops).
+      final s = WebSocketService.instance.sensitivity;
+      if (s.vibrationStrength > 0.01) {
+        _savedVibForStream = s.vibrationStrength;
+        s.vibrationStrength = 0.0;
+        s.vibration = false;
+      }
       StreamService.instance.connect(ip);
       WebSocketService.instance.send({
         'type': 'set_stream_quality',
-        'high_quality': WebSocketService.instance.sensitivity.streamHighQuality,
-      });
-      _streamSub = StreamService.instance.frameStream.listen((frame) {
-        if (mounted) {
-          final oldFrame = _streamFrame;
-          setState(() => _streamFrame = frame);
-          oldFrame?.dispose();
-        } else {
-          frame.dispose();
-        }
+        'quality': WebSocketService.instance.sensitivity.streamQuality,
       });
       setState(() => _streamOn = true);
     }
@@ -257,10 +285,10 @@ class _ControllerScreenState extends State<ControllerScreen> {
   @override
   void dispose() {
     _sub.cancel();
-    _streamSub?.cancel();
     StreamService.instance.disconnect();
     DeviceStats.instance.stop();
-    _streamFrame?.dispose();
+    _toast?.remove();
+    _toast = null;
     super.dispose();
   }
 
@@ -282,14 +310,11 @@ class _ControllerScreenState extends State<ControllerScreen> {
       backgroundColor: const Color(0xFF080810),
       body: Stack(
         children: [
-          // 1. Background — game stream if active, else standard glow
-          if (_streamOn && _streamFrame != null)
-            Positioned.fill(
-              child: RawImage(
-                image: _streamFrame!,
-                fit: WebSocketService.instance.sensitivity.streamFitStretch ? BoxFit.fill : BoxFit.contain,
-              ),
-            )
+          // 1. Background — game stream if active, else standard glow.
+          // The video layer repaints in isolation (RepaintBoundary +
+          // ValueListenableBuilder) so 60fps frame updates never rebuild the HUD.
+          if (_streamOn)
+            const Positioned.fill(child: _VideoLayer())
           else
             _BgGlow(),
 
@@ -335,6 +360,7 @@ class _ControllerScreenState extends State<ControllerScreen> {
                     const SizedBox(width: 8),
                     _StreamBtn(
                       active: _streamOn,
+                      enabled: _conn == ws.ConnectionState.connected,
                       onTap: _toggleStream,
                     ),
                     const SizedBox(width: 8),
@@ -354,6 +380,16 @@ class _ControllerScreenState extends State<ControllerScreen> {
                     _SettingsBtn(onTap: () => setState(() => _showSettings = !_showSettings)),
                   ]),
                 ),
+              ),
+            ),
+
+          // Monitor mode: controls hidden. Double-tap anywhere brings them
+          // back (the ghost button is deliberately faint and easy to miss).
+          if (_hideHud)
+            Positioned.fill(
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onDoubleTap: () => setState(() => _hideHud = false),
               ),
             ),
 
@@ -442,13 +478,13 @@ class _ControllerScreenState extends State<ControllerScreen> {
           left: w * 0.5, top: 0, bottom: 0,
           child: Container(width: 1, color: Colors.white.withValues(alpha: 0.07)),
         ),
-        // LEFT floating stick (movement)
+        // LEFT floating stick (movement) — hidden in mouse mode
         if (!_mouseMode)
           Positioned(
             left: 0, top: 28, bottom: 0, width: w * 0.5,
             child: _FloatingStick(side: 'left', screenH: h),
           ),
-        // RIGHT floating stick (camera / mouse)
+        // RIGHT floating stick — full-screen trackpad in mouse mode, right-half otherwise
         Positioned(
           right: 0, top: 28, bottom: 0, width: _mouseMode ? w : w * 0.5,
           child: _FloatingStick(side: 'right', screenH: h, mouseMode: _mouseMode),
@@ -486,21 +522,22 @@ class _ControllerScreenState extends State<ControllerScreen> {
             ],
           ),
         ),
-        // Left side buttons
-        Positioned(
-          top: 28, left: w * 0.02, bottom: h * 0.05,
-          child: SizedBox(
-            width: w * 0.35,
-            child: Stack(
-              children: [
-                Positioned(top: h * 0.05, left: w * 0.05, child: const TriggerBar(side: 'left', label: 'LT', width: 56, height: 56)),
-                Positioned(top: h * 0.05, right: w * 0.05, child: const BumperButton(button: 'LB', label: 'LB', width: 56)),
-                Positioned(bottom: h * 0.05, left: 0, child: const ActionButton(button: 'LS', label: 'L3', size: 56)),
-                Positioned(top: h * 0.3, left: w * 0.02, child: const DPad(size: 140)),
-              ],
+        // Left side buttons — hidden in mouse mode (left half becomes click zone)
+        if (!_mouseMode)
+          Positioned(
+            top: 28, left: w * 0.02, bottom: h * 0.05,
+            child: SizedBox(
+              width: w * 0.35,
+              child: Stack(
+                children: [
+                  Positioned(top: h * 0.05, left: w * 0.05, child: const TriggerBar(side: 'left', label: 'LT', width: 56, height: 56)),
+                  Positioned(top: h * 0.05, right: w * 0.05, child: const BumperButton(button: 'LB', label: 'LB', width: 56)),
+                  Positioned(bottom: h * 0.05, left: 0, child: const ActionButton(button: 'LS', label: 'L3', size: 56)),
+                  Positioned(top: h * 0.3, left: w * 0.02, child: const DPad(size: 140)),
+                ],
+              ),
             ),
           ),
-        ),
         // Right side buttons
         if (!_mouseMode)
           Positioned(
@@ -540,11 +577,20 @@ class _ControllerScreenState extends State<ControllerScreen> {
     final hbSize = (big * s.handbrakeSize).clamp(56.0, 150.0);
 
     return [
-      // Right floating stick for mouse mode
+      // Right floating stick — full-screen trackpad in mouse mode
       Positioned(
         right: 0, top: 28, bottom: 0, width: _mouseMode ? w : w * 0.5,
         child: _FloatingStick(side: 'right', screenH: h, mouseMode: _mouseMode),
       ),
+      // Left floating stick (LS) — hidden/locked, same as the Standard layout.
+      // Lets you navigate menus and select cars with full X/Y. Drawn UNDER the
+      // wheel + left buttons (added later in this list), so those capture their
+      // own touches first and the stick only activates on the empty left area.
+      if (!_mouseMode)
+        Positioned(
+          left: 0, top: 28, bottom: 0, width: w * 0.5,
+          child: _FloatingStick(side: 'left', screenH: h),
+        ),
       // Mouse toggle + R-Click pill
       Positioned(
         bottom: h * 0.05, left: 0, right: 0,
@@ -879,6 +925,89 @@ class _FloatingStickState extends State<_FloatingStick> {
   );
 }
 
+// ── Video layer — isolated repaint surface for the game stream ────────────────
+// Wrapped in a RepaintBoundary and driven by StreamService.frame so that
+// decoded frames (up to 60fps) repaint ONLY this texture, never the HUD above it.
+
+class _VideoLayer extends StatelessWidget {
+  const _VideoLayer();
+
+  @override
+  Widget build(BuildContext context) {
+    return RepaintBoundary(
+      child: ValueListenableBuilder<ui.Image?>(
+        valueListenable: StreamService.instance.frame,
+        builder: (context, image, _) {
+          if (image == null) return const SizedBox.expand();
+          return RawImage(
+            image: image,
+            fit: WebSocketService.instance.sensitivity.streamFitStretch
+                ? BoxFit.fill
+                : BoxFit.contain,
+          );
+        },
+      ),
+    );
+  }
+}
+
+// ── Toast — transparent pill that fades in, holds, then fades out ─────────────
+
+class _Toast extends StatefulWidget {
+  const _Toast({required this.message});
+  final String message;
+
+  @override
+  State<_Toast> createState() => _ToastState();
+}
+
+class _ToastState extends State<_Toast> {
+  double _opacity = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    // Fade in next frame.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) setState(() => _opacity = 1);
+    });
+    // Hold, then fade out (parent removes the entry shortly after).
+    Future.delayed(const Duration(milliseconds: 1800), () {
+      if (mounted) setState(() => _opacity = 0);
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final bottom = MediaQuery.of(context).padding.bottom + 40;
+    return Positioned(
+      left: 0, right: 0, bottom: bottom,
+      child: IgnorePointer(
+        child: Center(
+          child: AnimatedOpacity(
+            opacity: _opacity,
+            duration: const Duration(milliseconds: 400),
+            curve: Curves.easeInOut,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 11),
+              decoration: BoxDecoration(
+                color: const Color(0xCC0B0B12),
+                borderRadius: BorderRadius.circular(24),
+                border: Border.all(color: const Color(0x3300D4FF)),
+                boxShadow: [BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.45), blurRadius: 16, offset: const Offset(0, 4))],
+              ),
+              child: Text(widget.message,
+                style: const TextStyle(
+                  color: Colors.white, fontSize: 13, fontWeight: FontWeight.w500, letterSpacing: 0.2)),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 // ── Stick painter — identical style for both sides ────────────────────────────
 
 class _StickPainter extends CustomPainter {
@@ -1030,7 +1159,7 @@ class _SettingsPanelState extends State<_SettingsPanel> {
   late double _gasSize;
   late double _brakeSize;
   late double _hbSize;
-  late bool _streamHq;
+  late String _streamQuality;
   late bool _streamFit;
 
   @override
@@ -1046,8 +1175,8 @@ class _SettingsPanelState extends State<_SettingsPanel> {
     _gasSize    = s.gasSize;
     _brakeSize  = s.brakeSize;
     _hbSize     = s.handbrakeSize;
-    _streamHq   = s.streamHighQuality;
-    _streamFit  = s.streamFitStretch;
+    _streamQuality = s.streamQuality;
+    _streamFit     = s.streamFitStretch;
   }
 
   @override
@@ -1099,13 +1228,38 @@ class _SettingsPanelState extends State<_SettingsPanel> {
                         ...forza ? _forzaSettings() : _standardSettings(),
                         if (widget.streamOn) ...[
                           const SizedBox(height: 8),
-                          _section('Stream Settings'),
-                          _switchRow('USB High Quality', _streamHq, (v) {
-                            setState(() => _streamHq = v);
-                            WebSocketService.instance.sensitivity.streamHighQuality = v;
-                            WebSocketService.instance.send({'type': 'set_stream_quality', 'high_quality': v});
-                          }),
-                          _switchRow('Resolution Fit (Stretch)', _streamFit, (v) {
+                          _section('Stream Quality'),
+                          const SizedBox(height: 6),
+                          Wrap(spacing: 6, runSpacing: 6, children: [
+                            for (final opt in const [
+                              ('360p', '360p'),
+                              ('480p', '480p'),
+                              ('720p', '720p'),
+                              ('screen', '2nd Screen'),
+                            ])
+                              GestureDetector(
+                                onTap: () {
+                                  setState(() => _streamQuality = opt.$1);
+                                  WebSocketService.instance.sensitivity.streamQuality = opt.$1;
+                                  WebSocketService.instance.send({'type': 'set_stream_quality', 'quality': opt.$1});
+                                },
+                                child: AnimatedContainer(
+                                  duration: const Duration(milliseconds: 150),
+                                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                                  decoration: BoxDecoration(
+                                    color: _streamQuality == opt.$1 ? const Color(0x2200D4FF) : Colors.transparent,
+                                    borderRadius: BorderRadius.circular(8),
+                                    border: Border.all(
+                                      color: _streamQuality == opt.$1 ? const Color(0xFF00D4FF) : const Color(0xFF3A3A55)),
+                                  ),
+                                  child: Text(opt.$2, style: TextStyle(
+                                    color: _streamQuality == opt.$1 ? const Color(0xFF00D4FF) : Colors.white54,
+                                    fontSize: 12, fontWeight: _streamQuality == opt.$1 ? FontWeight.bold : FontWeight.normal)),
+                                ),
+                              ),
+                          ]),
+                          const SizedBox(height: 4),
+                          _switchRow('Stretch to fill', _streamFit, (v) {
                             setState(() => _streamFit = v);
                             WebSocketService.instance.sensitivity.streamFitStretch = v;
                           }),
@@ -1249,19 +1403,19 @@ class _SettingsPanelState extends State<_SettingsPanel> {
     s.gasSize               = d.gasSize;
     s.brakeSize             = d.brakeSize;
     s.handbrakeSize         = d.handbrakeSize;
-    s.streamHighQuality     = false;
+    s.streamQuality = '480p';
     WebSocketService.instance.saveSensitivity();
     setState(() {
-      _leftStick   = d.stickSensitivity;
-      _rightStick  = d.rightStickSensitivity;
-      _dead        = d.deadZone;
-      _mouse       = d.mouseSensitivity;
-      _vibStrength = d.vibrationStrength;
-      _joyRadius   = d.joyRadius;
-      _gasSize     = d.gasSize;
-      _brakeSize   = d.brakeSize;
-      _hbSize      = d.handbrakeSize;
-      _streamHq    = false;
+      _leftStick     = d.stickSensitivity;
+      _rightStick    = d.rightStickSensitivity;
+      _dead          = d.deadZone;
+      _mouse         = d.mouseSensitivity;
+      _vibStrength   = d.vibrationStrength;
+      _joyRadius     = d.joyRadius;
+      _gasSize       = d.gasSize;
+      _brakeSize     = d.brakeSize;
+      _hbSize        = d.handbrakeSize;
+      _streamQuality = '480p';
     });
   }
 
@@ -1561,27 +1715,31 @@ class _SettingsBtn extends StatelessWidget {
 
 // ── Stream toggle button (top bar) ───────────────────────────────────────────
 class _StreamBtn extends StatelessWidget {
-  const _StreamBtn({required this.active, required this.onTap});
+  const _StreamBtn({required this.active, required this.onTap, this.enabled = true});
   final bool active;
+  final bool enabled;
   final VoidCallback onTap;
 
   @override
-  Widget build(BuildContext context) => GestureDetector(
-    onTap: onTap,
-    child: Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-      decoration: BoxDecoration(
-        color: active ? const Color(0x3300D4FF) : const Color(0x99000000),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(
-          color: active ? const Color(0xFF00D4FF) : Colors.white12,
-          width: 1,
+  Widget build(BuildContext context) => Opacity(
+    opacity: enabled ? 1.0 : 0.4,
+    child: GestureDetector(
+      onTap: onTap, // still fires when disabled → shows the "connect first" hint
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        decoration: BoxDecoration(
+          color: active ? const Color(0x3300D4FF) : const Color(0x99000000),
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(
+            color: active ? const Color(0xFF00D4FF) : Colors.white12,
+            width: 1,
+          ),
         ),
-      ),
-      child: Icon(
-        Icons.cast,
-        color: active ? const Color(0xFF00D4FF) : Colors.white60,
-        size: 16,
+        child: Icon(
+          Icons.cast,
+          color: active ? const Color(0xFF00D4FF) : Colors.white60,
+          size: 16,
+        ),
       ),
     ),
   );
@@ -1622,9 +1780,9 @@ class _GamesBtn extends StatelessWidget {
   );
 }
 
-// ── Game picker overlay ───────────────────────────────────────────────────────
+// ── Game picker overlay — minimal tabbed panel ────────────────────────────────
 
-class _GamePicker extends StatelessWidget {
+class _GamePicker extends StatefulWidget {
   const _GamePicker({
     required this.currentId,
     required this.customLayouts,
@@ -1645,88 +1803,124 @@ class _GamePicker extends StatelessWidget {
   final VoidCallback onClose;
 
   @override
+  State<_GamePicker> createState() => _GamePickerState();
+}
+
+class _GamePickerState extends State<_GamePicker> {
+  int _tab = 0; // 0 = built-in, 1 = custom
+
+  static const _accent = Color(0xFF00D4FF);
+
+  bool get _onCustomTab => _tab == 1;
+
+  @override
   Widget build(BuildContext context) {
-    final top = MediaQuery.of(context).padding.top;
     final sz = MediaQuery.of(context).size;
     return Stack(children: [
       Positioned.fill(child: GestureDetector(
-        behavior: HitTestBehavior.opaque, onTap: onClose,
-        child: const SizedBox.expand())),
+        behavior: HitTestBehavior.opaque, onTap: widget.onClose,
+        child: Container(color: Colors.black.withValues(alpha: 0.65)))),
       Center(
         child: TweenAnimationBuilder<double>(
           tween: Tween(begin: 0, end: 1),
-          duration: const Duration(milliseconds: 150),
+          duration: const Duration(milliseconds: 140),
           curve: Curves.easeOutCubic,
           builder: (_, t, child) => Opacity(
             opacity: t,
-            child: Transform.scale(scale: 0.95 + (0.05 * t), child: child),
+            child: Transform.scale(scale: 0.97 + 0.03 * t, child: child),
           ),
           child: Material(
             color: Colors.transparent,
             child: Container(
-              width: (sz.width * 0.85).clamp(360.0, 820.0),
-              constraints: BoxConstraints(maxHeight: (sz.height * 0.85).clamp(200.0, 600.0)),
+              width: (sz.width * 0.55).clamp(300.0, 480.0),
+              constraints: BoxConstraints(maxHeight: sz.height * 0.80),
               decoration: BoxDecoration(
                 color: const Color(0xFF0D0D14),
-                borderRadius: BorderRadius.circular(14),
+                borderRadius: BorderRadius.circular(16),
                 border: Border.all(color: const Color(0xFF24243A)),
                 boxShadow: [BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.5), blurRadius: 20, offset: const Offset(0, 8))],
+                  color: Colors.black.withValues(alpha: 0.55),
+                  blurRadius: 28, offset: const Offset(0, 10))],
               ),
               child: Column(mainAxisSize: MainAxisSize.min, children: [
+                // ── Header ────────────────────────────────────────────────────
                 Padding(
-                  padding: const EdgeInsets.fromLTRB(24, 20, 16, 4),
+                  padding: const EdgeInsets.fromLTRB(18, 16, 12, 12),
                   child: Row(children: [
-                    const Icon(Icons.apps_rounded, color: Color(0xFF00D4FF), size: 22),
-                    const SizedBox(width: 10),
-                    const Text('Game Layouts Library', style: TextStyle(
-                      color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold)),
+                    const Text('LAYOUTS', style: TextStyle(
+                      color: Colors.white, fontSize: 12,
+                      fontWeight: FontWeight.w700, letterSpacing: 2.5)),
                     const Spacer(),
                     GestureDetector(
-                      onTap: onClose,
+                      onTap: widget.onClose,
                       child: Container(
-                        padding: const EdgeInsets.all(6),
+                        padding: const EdgeInsets.all(5),
                         decoration: const BoxDecoration(
                           shape: BoxShape.circle, color: Color(0xFF1A1A24)),
-                        child: const Icon(Icons.close, color: Colors.white54, size: 16),
+                        child: const Icon(Icons.close, color: Colors.white54, size: 15),
                       ),
                     ),
                   ]),
                 ),
-                const Padding(
-                  padding: EdgeInsets.fromLTRB(24, 0, 24, 16),
-                  child: Align(
-                    alignment: Alignment.centerLeft,
-                    child: Text('Pick a layout from the library, or build your own custom layout from scratch.',
-                      style: TextStyle(color: Colors.white54, fontSize: 13)),
-                  ),
+
+                // ── Tab bar ───────────────────────────────────────────────────
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: Row(children: [
+                    _tabBtn(0, 'BUILT-IN'),
+                    const SizedBox(width: 6),
+                    _tabBtn(1, 'CUSTOM (${widget.customLayouts.length})'),
+                  ]),
                 ),
-                Flexible(
-                  child: SingleChildScrollView(
-                    padding: const EdgeInsets.fromLTRB(20, 2, 20, 24),
-                    child: Wrap(
-                      spacing: 12, runSpacing: 12, alignment: WrapAlignment.center,
-                      children: [
-                        for (final p in kGameProfiles.where((p) => !p.comingSoon))
-                          _GameCard(profile: p, selected: p.id == currentId,
-                            onTap: () => onPick(p.id),
-                            onCustomize: (p.id == 'standard' || p.id == 'forza' || p.id == 'spiderman' || p.id == 'overcooked')
-                                ? () => onCustomize(p.id) : null),
-                        for (final l in customLayouts)
-                          _CustomCard(
-                            layout: l,
-                            selected: currentId == 'custom:${l.id}',
-                            onTap: () => onPick('custom:${l.id}'),
-                            onEdit: () => onEdit(l),
-                            onDelete: () => onDelete(l),
+                const SizedBox(height: 10),
+                const Divider(height: 1, color: Color(0xFF20202C)),
+
+                // ── List ──────────────────────────────────────────────────────
+                Flexible(child: SingleChildScrollView(
+                  child: Column(mainAxisSize: MainAxisSize.min, children: [
+                    if (!_onCustomTab) ...[
+                      for (final p in kGameProfiles.where((p) => !p.comingSoon))
+                        _presetRow(p),
+                      if (kGameProfiles.any((p) => p.comingSoon))
+                        const Padding(
+                          padding: EdgeInsets.fromLTRB(18, 8, 18, 2),
+                          child: Align(alignment: Alignment.centerLeft,
+                            child: Text('COMING SOON', style: TextStyle(
+                              color: Colors.white24, fontSize: 9,
+                              fontWeight: FontWeight.bold, letterSpacing: 1.8))),
+                        ),
+                      for (final p in kGameProfiles.where((p) => p.comingSoon))
+                        _presetRow(p, disabled: true),
+                    ] else ...[
+                      if (widget.customLayouts.isEmpty)
+                        const Padding(
+                          padding: EdgeInsets.symmetric(vertical: 28),
+                          child: Text('No custom layouts yet.',
+                            style: TextStyle(color: Colors.white38, fontSize: 13)),
+                        ),
+                      for (final l in widget.customLayouts)
+                        _customRow(l),
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(14, 10, 14, 14),
+                        child: GestureDetector(
+                          onTap: () { widget.onClose(); widget.onNew(); },
+                          child: Container(
+                            height: 40, alignment: Alignment.center,
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(color: _accent)),
+                            child: const Row(mainAxisSize: MainAxisSize.min, children: [
+                              Icon(Icons.add, color: _accent, size: 16),
+                              SizedBox(width: 6),
+                              Text('New custom layout', style: TextStyle(
+                                color: _accent, fontSize: 12, fontWeight: FontWeight.w600)),
+                            ]),
                           ),
-                        _NewCard(onTap: onNew),
-                        for (final p in kGameProfiles.where((p) => p.comingSoon))
-                          _GameCard(profile: p, selected: false, onTap: null),
-                      ],
-                    ),
-                  ),
-                ),
+                        ),
+                      ),
+                    ],
+                  ]),
+                )),
               ]),
             ),
           ),
@@ -1734,167 +1928,115 @@ class _GamePicker extends StatelessWidget {
       ),
     ]);
   }
-}
 
-class _GameCard extends StatelessWidget {
-  const _GameCard({required this.profile, required this.selected, this.onTap, this.onCustomize});
-  final GameProfile profile;
-  final bool selected;
-  final VoidCallback? onTap;
-  final VoidCallback? onCustomize;
-
-  @override
-  Widget build(BuildContext context) {
-    const accent = Color(0xFF00D4FF);
+  Widget _tabBtn(int idx, String label) {
+    final active = _tab == idx;
     return GestureDetector(
-      onTap: onTap,
-      child: Opacity(
-        opacity: profile.comingSoon ? 0.45 : 1.0,
-        child: Container(
-          width: 160, height: 160,
-          decoration: BoxDecoration(
-            color: selected ? const Color(0x1A00D4FF) : const Color(0xFF161622),
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(
-              color: selected ? accent : const Color(0xFF2C2C40),
-              width: selected ? 2 : 1,
-            ),
-          ),
-          child: Stack(children: [
-            Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Icon(profile.icon, color: selected ? accent : Colors.white, size: 44),
-                  Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                    Text(profile.name, maxLines: 1, overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.w600)),
-                    const SizedBox(height: 4),
-                    Text(profile.tagline, maxLines: 1, overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(color: Colors.white54, fontSize: 11)),
-                  ]),
-                ],
-              ),
-            ),
-            if (onCustomize != null)
-              Positioned(top: 8, right: 8, child: GestureDetector(
-                onTap: onCustomize,
-                child: Container(
-                  padding: const EdgeInsets.all(6),
-                  decoration: const BoxDecoration(shape: BoxShape.circle, color: Color(0xFF24243A)),
-                  child: const Icon(Icons.tune, size: 16, color: Colors.white70),
-                ),
-              )),
-            if (selected && onCustomize == null)
-              const Positioned(bottom: 10, right: 10,
-                child: Icon(Icons.check_circle, color: accent, size: 20)),
-            if (profile.comingSoon)
-              Positioned(top: 10, right: 10,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF2C2C40), borderRadius: BorderRadius.circular(8)),
-                  child: const Text('SOON', style: TextStyle(
-                    color: Colors.white54, fontSize: 9,
-                    fontWeight: FontWeight.bold, letterSpacing: 1)),
-                )),
-          ]),
+      onTap: () => setState(() => _tab = idx),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 150),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+        decoration: BoxDecoration(
+          color: active ? const Color(0x2200D4FF) : Colors.transparent,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(
+            color: active ? _accent : const Color(0xFF2C2C40)),
         ),
+        child: Text(label, style: TextStyle(
+          color: active ? _accent : Colors.white38,
+          fontSize: 10, fontWeight: FontWeight.bold, letterSpacing: 1.4)),
       ),
     );
   }
-}
 
-class _CustomCard extends StatelessWidget {
-  const _CustomCard({
-    required this.layout, required this.selected,
-    required this.onTap, required this.onEdit, required this.onDelete,
-  });
-  final CustomLayout layout;
-  final bool selected;
-  final VoidCallback onTap, onEdit, onDelete;
-
-  Widget _mini(IconData i, VoidCallback onTap, {Color color = Colors.white54}) =>
-      GestureDetector(
-        onTap: onTap,
-        child: Container(
-          padding: const EdgeInsets.all(5),
-          decoration: const BoxDecoration(shape: BoxShape.circle, color: Color(0xFF1A1A24)),
-          child: Icon(i, size: 14, color: color),
-        ),
-      );
-
-  @override
-  Widget build(BuildContext context) {
-    const accent = Color(0xFF00D4FF);
-    return GestureDetector(
-      onTap: onTap,
+  Widget _presetRow(GameProfile p, {bool disabled = false}) {
+    final selected = !disabled && widget.currentId == p.id;
+    final canCustomize = !disabled &&
+        (p.id == 'standard' || p.id == 'forza' || p.id == 'spiderman' || p.id == 'overcooked');
+    return InkWell(
+      onTap: disabled ? null : () => widget.onPick(p.id),
       child: Container(
-        width: 160, height: 160,
-        decoration: BoxDecoration(
-          color: selected ? const Color(0x1A00D4FF) : const Color(0xFF161622),
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(
-            color: selected ? accent : const Color(0xFF2C2C40), width: selected ? 2 : 1),
-        ),
-        child: Stack(children: [
-          Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Icon(Icons.tune, color: selected ? accent : Colors.white, size: 40),
-                Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  Text(layout.name, maxLines: 1, overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.w600)),
-                  const SizedBox(height: 4),
-                  Text('${layout.items.length} controls · custom',
-                    style: const TextStyle(color: Colors.white54, fontSize: 11)),
-                ]),
-              ],
+        color: selected ? const Color(0x0F00D4FF) : Colors.transparent,
+        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+        child: Row(children: [
+          Icon(p.icon,
+            size: 20,
+            color: disabled ? Colors.white24
+                : selected ? _accent : Colors.white70),
+          const SizedBox(width: 14),
+          Expanded(child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(p.name, style: TextStyle(
+                color: disabled ? Colors.white24
+                    : selected ? _accent : Colors.white,
+                fontSize: 13, fontWeight: FontWeight.w600)),
+              Text(p.tagline, style: TextStyle(
+                color: disabled ? Colors.white12 : Colors.white38, fontSize: 10)),
+            ],
+          )),
+          if (selected && !canCustomize)
+            const Icon(Icons.check_circle, color: _accent, size: 16)
+          else if (canCustomize)
+            GestureDetector(
+              onTap: () => widget.onCustomize(p.id),
+              child: Container(
+                padding: const EdgeInsets.all(5),
+                decoration: const BoxDecoration(shape: BoxShape.circle, color: Color(0xFF1A1A24)),
+                child: Icon(Icons.tune, size: 14,
+                  color: selected ? _accent : Colors.white54),
+              ),
+            ),
+        ]),
+      ),
+    );
+  }
+
+  Widget _customRow(CustomLayout l) {
+    final selected = widget.currentId == 'custom:${l.id}';
+    return InkWell(
+      onTap: () => widget.onPick('custom:${l.id}'),
+      child: Container(
+        color: selected ? const Color(0x0F00D4FF) : Colors.transparent,
+        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
+        child: Row(children: [
+          Icon(Icons.tune, size: 18, color: selected ? _accent : Colors.white54),
+          const SizedBox(width: 14),
+          Expanded(child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(l.name, style: TextStyle(
+                color: selected ? _accent : Colors.white,
+                fontSize: 13, fontWeight: FontWeight.w600)),
+              Text('${l.items.length} controls · custom',
+                style: const TextStyle(color: Colors.white38, fontSize: 10)),
+            ],
+          )),
+          GestureDetector(
+            onTap: () => widget.onEdit(l),
+            child: Container(
+              padding: const EdgeInsets.all(5),
+              decoration: const BoxDecoration(shape: BoxShape.circle, color: Color(0xFF1A1A24)),
+              child: Icon(Icons.edit_outlined, size: 14,
+                color: selected ? _accent : Colors.white54),
             ),
           ),
-          Positioned(top: 8, right: 8, child: Row(children: [
-            _mini(Icons.edit, onEdit),
-            const SizedBox(width: 6),
-            _mini(Icons.delete_outline, onDelete, color: const Color(0xFFE53935)),
-          ])),
-          if (selected)
-            const Positioned(bottom: 10, right: 10,
-              child: Icon(Icons.check_circle, color: accent, size: 20)),
+          const SizedBox(width: 6),
+          GestureDetector(
+            onTap: () => widget.onDelete(l),
+            child: Container(
+              padding: const EdgeInsets.all(5),
+              decoration: const BoxDecoration(shape: BoxShape.circle, color: Color(0xFF1A1A24)),
+              child: const Icon(Icons.delete_outline, size: 14, color: Color(0xFFE53935)),
+            ),
+          ),
         ]),
       ),
     );
   }
 }
 
-class _NewCard extends StatelessWidget {
-  const _NewCard({required this.onTap});
-  final VoidCallback onTap;
-  @override
-  Widget build(BuildContext context) => GestureDetector(
-    onTap: onTap,
-    child: Container(
-      width: 160, height: 160,
-      decoration: BoxDecoration(
-        color: Colors.transparent,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: const Color(0xFF2E2E44), width: 1.5),
-      ),
-      child: const Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-        Icon(Icons.add_circle_outline, color: Color(0xFF00D4FF), size: 36),
-        SizedBox(height: 12),
-        Text('New Layout', style: TextStyle(
-          color: Colors.white70, fontSize: 15, fontWeight: FontWeight.w600)),
-        SizedBox(height: 4),
-        Text('Build your own', style: TextStyle(color: Colors.white38, fontSize: 11)),
-      ]),
-    ),
-  );
-}
+
 
 class _TemplatePicker extends StatelessWidget {
   const _TemplatePicker({required this.onPick});
