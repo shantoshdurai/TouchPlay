@@ -3,7 +3,7 @@ description: Turn your phone into a gamepad for any game
 
 publish_to: 'none'
 
-version: 1.1.15+15
+version: 1.1.16+16
 
 environment:
   sdk: '>=3.0.0 <4.0.0'
@@ -28,7 +28,14 @@ dev_dependencies:
 flutter_launcher_icons:
   android: true
   ios: false
+  # Legacy (Android < 8) fallback — the full controller-on-blue square.
   image_path: "assets/app_icon.png"
+  # Adaptive icon (Android 8+): solid brand-blue background layer + the
+  # controller as a transparent foreground, so launchers mask it into a clean
+  # circle/squircle that fills the shape (no more square-in-circle look).
+  adaptive_icon_background: "#03A4FE"
+  adaptive_icon_foreground: "assets/app_icon_foreground.png"
+  min_sdk_android: 21
 
 flutter:
   uses-material-design: true

@@ -988,18 +988,23 @@ class _ToastState extends State<_Toast> {
             opacity: _opacity,
             duration: const Duration(milliseconds: 400),
             curve: Curves.easeInOut,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 11),
-              decoration: BoxDecoration(
-                color: const Color(0xCC0B0B12),
-                borderRadius: BorderRadius.circular(24),
-                border: Border.all(color: const Color(0x3300D4FF)),
-                boxShadow: [BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.45), blurRadius: 16, offset: const Offset(0, 4))],
+            // Material ancestor → kills the default yellow debug underline on Text.
+            child: Material(
+              type: MaterialType.transparency,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 11),
+                decoration: BoxDecoration(
+                  color: const Color(0xCC0B0B12),
+                  borderRadius: BorderRadius.circular(24),
+                  border: Border.all(color: const Color(0x3300D4FF)),
+                  boxShadow: [BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.45), blurRadius: 16, offset: const Offset(0, 4))],
+                ),
+                child: Text(widget.message,
+                  style: const TextStyle(
+                    color: Colors.white, fontSize: 13, fontWeight: FontWeight.w500,
+                    letterSpacing: 0.2, decoration: TextDecoration.none)),
               ),
-              child: Text(widget.message,
-                style: const TextStyle(
-                  color: Colors.white, fontSize: 13, fontWeight: FontWeight.w500, letterSpacing: 0.2)),
             ),
           ),
         ),
