@@ -63,6 +63,8 @@ if defined ADB (
             echo   [USB] Phone detected — forwarding ports + launching app...
             "%ADB%" reverse tcp:8765 tcp:8765 >nul 2>&1
             "%ADB%" reverse tcp:8767 tcp:8767 >nul 2>&1
+            "%ADB%" reverse tcp:8768 tcp:8768 >nul 2>&1
+            "%ADB%" reverse tcp:8769 tcp:8769 >nul 2>&1
             "%ADB%" shell monkey -p com.touchplay.app -c android.intent.category.LAUNCHER 1 >nul 2>&1
             goto :usb_done
         )
