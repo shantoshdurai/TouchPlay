@@ -20,7 +20,7 @@ echo     ^|   ^|  ^|  _  ^|  ^|  ^|  __^|     ^|    __/^|  ^|  _  ^|  ^|  ^|
 echo     ^|___^|  ^|_____^|_____^|____^|__^|__^|___^|   ^|__^|___._^|___  ^|
 echo                                                    ^|_____^|
 echo.
-echo    by Geek Moggers                            Server v1.0
+echo    by Geek Moggers                            Server v1.2
 echo.
 
 :: Check Python
@@ -34,7 +34,7 @@ if %errorlevel% neq 0 (
 )
 
 :: Auto-install missing packages silently
-python -c "import websockets, vgamepad, rich, mss, PIL" >nul 2>&1
+python -c "import websockets, vgamepad, rich, cv2, numpy, dxcam" >nul 2>&1
 if %errorlevel% neq 0 (
     echo   [..] Installing required packages, please wait...
     python -m pip install -r "%~dp0server\requirements.txt" --quiet

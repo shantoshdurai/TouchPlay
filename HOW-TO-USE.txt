@@ -3,33 +3,48 @@ TouchPlay - Quick Start Guide
 
 WHAT'S IN THIS FOLDER
 ----------------------
-  TouchPlay-Server.exe  — PC server that streams controller input to your phone
-  TouchPlay-Setup.bat   — One-click installer / dependency checker
+  TouchPlay-Server.bat  — Starts the PC server (auto-installs Python packages)
+  TouchPlay-Setup.bat   — One-click installer: packages, gamepad driver, firewall
+  server\               — The server itself
   HOW-TO-USE.txt        — This guide
 
 
 FIRST-TIME SETUP
 ----------------
-  1. Double-click TouchPlay-Setup.bat and let it finish.
-  2. Make sure your PC and phone are on the SAME Wi-Fi network.
+  1. Install Python 3.10+ from python.org (tick "Add Python to PATH").
+  2. Double-click TouchPlay-Setup.bat and let it finish.
+  3. Make sure your PC and phone are on the SAME Wi-Fi network.
 
 
 EVERY TIME YOU PLAY
 -------------------
-  3. Run TouchPlay-Server.exe on your PC.
-  4. Note the IP address shown in the server window (e.g. 192.168.x.x).
-  5. Open the TouchPlay app on your phone.
-  6. Enter that IP address and tap Connect.
-  7. Pick your game layout and start playing.
+  4. Run TouchPlay-Server.bat (or the Desktop shortcut) on your PC.
+  5. Open the TouchPlay app on your phone — it finds your PC automatically.
+     (If not, tap the status chip and enter the IP shown in the server window.)
+  6. Pick a feature from the menu and go.
+
+
+WHAT THE APP CAN DO
+-------------------
+  Gamepad       — Full Xbox controller, up to 4 phones for local co-op
+  Mouse & Keys  — Trackpad + keyboard. Two-finger swipe scrolls,
+                  pinch zooms, two-finger tap right-clicks
+  Screen Mirror — See your PC screen on the phone while you play
+  File Transfer — Send files both ways. PC side uses Downloads\TouchPlay
+  Virtual Cam   — Phone camera becomes a PC webcam (install OBS Studio
+                  once so the virtual-camera driver exists, then pick
+                  "OBS Virtual Camera" in Discord/Zoom/Meet)
+  Projector     — Phone screen appears in a window on the PC
 
 
 TIPS
 ----
   - Keep the server window open while playing — closing it disconnects your phone.
-  - If the connection fails, check that Windows Firewall isn't blocking the app.
-  - For best performance use 5 GHz Wi-Fi.
+  - If the connection fails, re-run TouchPlay-Setup.bat to fix firewall rules.
+  - For best performance use 5 GHz Wi-Fi or a USB cable (USB tethering).
 
 
 SUPPORT
 -------
-  GitHub: https://github.com/  (see the Releases page for updates)
+  GitHub: https://github.com/shantoshdurai/touchplay-releases
+  (Releases page for updates · Issues for feedback · Discussions for community)

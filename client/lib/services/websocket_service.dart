@@ -63,6 +63,10 @@ class WebSocketService with WidgetsBindingObserver {
   ConnectionState _state = ConnectionState.disconnected;
   ConnectionState get state => _state;
 
+  // Keyboard auto-popup
+  final _keyboardCtrl = StreamController<bool>.broadcast();
+  Stream<bool> get keyboardStream => _keyboardCtrl.stream;
+
   // Latency (round-trip ping → pong, in ms)
   final _latencyCtrl = StreamController<int>.broadcast();
   Stream<int> get latencyStream => _latencyCtrl.stream;
@@ -116,7 +120,13 @@ class WebSocketService with WidgetsBindingObserver {
     _stateCtrl.add(s);
   }
 
+  bool _inited = false;
+
   Future<void> init() async {
+    // Idempotent — called from main() at startup and again by screens that
+    // need the link, so whichever runs first wins and the rest are no-ops.
+    if (_inited) return;
+    _inited = true;
     WidgetsBinding.instance.addObserver(this);
     final prefs = await SharedPreferences.getInstance();
     _manualIp = prefs.getString('manual_ip');
@@ -419,6 +429,8 @@ class WebSocketService with WidgetsBindingObserver {
         _maxPlayers   = (data['max'] as num?)?.toInt();
         _playerNumber = null;
         _playerCtrl.add(null);
+      } else if (data['type'] == 'keyboard_requested') {
+        _keyboardCtrl.add(data['show'] == true);
       }
     } catch (_) {}
   }
@@ -477,5 +489,6 @@ class WebSocketService with WidgetsBindingObserver {
     _disconnect();
     _stateCtrl.close();
     _playerCtrl.close();
+    _keyboardCtrl.close();
   }
 }

@@ -6,11 +6,13 @@ import subprocess
 import websockets
 from datetime import datetime
 from gamepad import (
-    GamepadController, mouse_move, mouse_click,
+    GamepadController, mouse_move, mouse_click, mouse_scroll, mouse_zoom,
     mouse_down, mouse_up, key_down, key_up, type_string, release_all_inputs,
 )
 from ui import ServerUI
 from stream import stream_handler, capture_loop, STREAM_PORT, set_quality, set_high_quality
+import files as file_transfer
+import cast as casting
 
 def get_best_ip() -> str:
     """Return USB tethering IP (192.168.42.x) if available, else best LAN IP."""
@@ -87,6 +89,8 @@ def ensure_firewall_rule() -> bool:
         ("TouchPlay Server TCP",    "TCP", PORT),
         ("TouchPlay Server UDP",    "UDP", UDP_PORT),
         ("TouchPlay Stream TCP",    "TCP", STREAM_PORT),
+        ("TouchPlay Files TCP",     "TCP", file_transfer.FILES_PORT),
+        ("TouchPlay Cast TCP",      "TCP", casting.CAST_PORT),
     ]:
         try:
             chk = subprocess.run(
@@ -148,6 +152,42 @@ async def flush_loop():
         pass
 
 
+async def focus_monitor_loop():
+    try:
+        import uiautomation as auto
+    except ImportError:
+        return
+
+    def check_focus():
+        try:
+            elem = auto.GetFocusedControl()
+            if elem and elem.ControlType in [50004, 50030]:
+                return True
+        except Exception:
+            pass
+        return False
+
+    last_state = False
+    try:
+        while True:
+            await asyncio.sleep(0.5)
+            if not any(s.connected for s in _sessions.values()):
+                continue
+            
+            current_state = await asyncio.to_thread(check_focus)
+            if current_state != last_state:
+                last_state = current_state
+                msg = json.dumps({"type": "keyboard_requested", "show": current_state})
+                for s in list(_sessions.values()):
+                    if s.connected and getattr(s, "websocket", None):
+                        try:
+                            await s.websocket.send(msg)
+                        except Exception:
+                            pass
+    except asyncio.CancelledError:
+        pass
+
+
 # ── Message handler ───────────────────────────────────────────────────────────
 
 def handle_message(data: dict, sess: Session) -> str | None:
@@ -168,6 +208,10 @@ def handle_message(data: dict, sess: Session) -> str | None:
         g.set_right_trigger(data["value"]); sess.dirty = True
     elif t == "mouse_move":
         mouse_move(int(data.get("dx", 0)), int(data.get("dy", 0)))
+    elif t == "mouse_scroll":
+        mouse_scroll(int(data.get("dx", 0)), int(data.get("dy", 0)))
+    elif t == "mouse_zoom":
+        mouse_zoom(int(data.get("delta", 0)))
     elif t == "mouse_click":
         mouse_click(data.get("button", "left"))
     elif t == "mouse_down":
@@ -351,6 +395,11 @@ async def main():
 
     ui.log(f"Server live · co-op ready · up to [bold]{MAX_PLAYERS}[/] players")
 
+    file_transfer.set_logger(ui.log)
+    casting.set_logger(ui.log)
+    file_transfer.start_file_server()
+    ui.log(f"File drop ready · phone files land in [bold]Downloads\\TouchPlay[/]")
+
     bg: list[asyncio.Task] = []
     with ui:
         bg = [
@@ -358,11 +407,15 @@ async def main():
             asyncio.create_task(udp_broadcast(ip)),
             asyncio.create_task(ui.refresh_loop()),
             asyncio.create_task(capture_loop()),
+            asyncio.create_task(focus_monitor_loop()),
         ]
         try:
             async with websockets.serve(handler, "0.0.0.0", PORT):
                 async with websockets.serve(stream_handler, "0.0.0.0", STREAM_PORT):
-                    await asyncio.Future()
+                    async with websockets.serve(
+                            casting.cast_handler, "0.0.0.0", casting.CAST_PORT,
+                            max_size=8 * 1024 * 1024):
+                        await asyncio.Future()
         except (asyncio.CancelledError, KeyboardInterrupt):
             pass
         finally:

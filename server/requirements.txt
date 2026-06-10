@@ -4,3 +4,7 @@ rich
 mss
 numpy
 opencv-python
+uiautomation
+dxcam
+Pillow
+pyvirtualcam

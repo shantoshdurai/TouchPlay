@@ -25,6 +25,13 @@ class StreamService {
   /// in isolation. The previous frame is disposed automatically when replaced.
   final ValueNotifier<ui.Image?> frame = ValueNotifier<ui.Image?>(null);
 
+  /// Real rendered frames-per-second — the rate at which decoded frames are
+  /// actually published to the screen (i.e. what the phone is really showing),
+  /// recomputed once a second. 0 when not streaming.
+  final ValueNotifier<int> fps = ValueNotifier<int>(0);
+  int _frameCount = 0;
+  Timer? _fpsTimer;
+
   bool _connected = false;
 
   // Prevent decode backlog: if a new frame arrives while we're still decoding
@@ -41,6 +48,13 @@ class StreamService {
       _channel = IOWebSocketChannel.connect(uri,
           connectTimeout: const Duration(seconds: 3));
       _connected = true;
+
+      // Publish the real frame rate once a second from the live frame count.
+      _frameCount = 0;
+      _fpsTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+        fps.value = _frameCount;
+        _frameCount = 0;
+      });
 
       _channel!.stream.listen(
         (data) {
@@ -74,6 +88,7 @@ class StreamService {
       final old = frame.value;
       frame.value = image;
       old?.dispose();
+      _frameCount++;   // count only frames actually shown on screen
     } catch (_) {
       // Bad frame — skip silently, don't crash the stream.
     } finally {
@@ -106,6 +121,10 @@ class StreamService {
     _connected = false;
     _decoding  = false;
     _pending   = null;
+    _fpsTimer?.cancel();
+    _fpsTimer  = null;
+    _frameCount = 0;
+    fps.value   = 0;
     final old = frame.value;
     frame.value = null;
     old?.dispose();

@@ -109,17 +109,20 @@ class _INPUT(ctypes.Structure):
     _anonymous_ = ("_input",)
     _fields_    = [("type", ctypes.c_ulong), ("_input", _INPUT_UNION)]
 
-_MOVE  = 0x0001
-_LDN   = 0x0002
-_LUP   = 0x0004
-_RDN   = 0x0008
-_RUP   = 0x0010
+_MOVE   = 0x0001
+_LDN    = 0x0002
+_LUP    = 0x0004
+_RDN    = 0x0008
+_RUP    = 0x0010
+_WHEEL  = 0x0800
+_HWHEEL = 0x1000
 
-def _send(flags: int, dx: int = 0, dy: int = 0) -> None:
-    inp            = _INPUT(type=0)   # INPUT_MOUSE = 0
-    inp.mi.dx      = dx
-    inp.mi.dy      = dy
-    inp.mi.dwFlags = flags
+def _send(flags: int, dx: int = 0, dy: int = 0, data: int = 0) -> None:
+    inp              = _INPUT(type=0)   # INPUT_MOUSE = 0
+    inp.mi.dx        = dx
+    inp.mi.dy        = dy
+    inp.mi.mouseData = ctypes.c_ulong(data & 0xFFFFFFFF)
+    inp.mi.dwFlags   = flags
     ctypes.windll.user32.SendInput(1, ctypes.byref(inp), ctypes.sizeof(_INPUT))
 
 
@@ -127,6 +130,26 @@ def mouse_move(dx: int, dy: int) -> None:
     if dx == 0 and dy == 0:
         return
     _send(_MOVE, dx, dy)
+
+
+def mouse_scroll(dx: int, dy: int) -> None:
+    """Scroll wheel. dy > 0 scrolls up, dx > 0 scrolls right.
+    Values are in 1/120 wheel-notch units (a phone swipe sends small deltas)."""
+    if dy:
+        _send(_WHEEL, data=int(dy))
+    if dx:
+        _send(_HWHEEL, data=int(dx))
+
+
+def mouse_zoom(delta: int) -> None:
+    """Pinch-zoom → Ctrl + scroll wheel (zooms browsers, maps, editors…)."""
+    if not delta:
+        return
+    _send_key(0x11, False)            # Ctrl down
+    try:
+        _send(_WHEEL, data=int(delta))
+    finally:
+        _send_key(0x11, True)         # Ctrl up
 
 
 def mouse_click(button: str = "left") -> None:

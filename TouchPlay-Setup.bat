@@ -21,7 +21,7 @@ echo     ^|   ^|  ^|  _  ^|  ^|  ^|  __^|     ^|    __/^|  ^|  _  ^|  ^|  ^|
 echo     ^|___^|  ^|_____^|_____^|____^|__^|__^|___^|   ^|__^|___._^|___  ^|
 echo                                                    ^|_____^|
 echo.
-echo    by Geek Moggers                             Setup v1.0
+echo    by Geek Moggers                             Setup v1.2
 echo.
 
 ::----------------------------------------------------------
@@ -45,7 +45,7 @@ echo.
 :: 2/4  Python packages
 ::----------------------------------------------------------
 echo   [2/4] Installing Python packages...
-echo          vgamepad  websockets  rich  dxcam  opencv-python
+echo          vgamepad  websockets  rich  dxcam  opencv-python  pyvirtualcam
 python -m pip install -r server\requirements.txt --quiet 2>nul
 if %errorlevel% neq 0 (
     echo   [..] Retrying with --user...
@@ -81,7 +81,7 @@ echo.
 ::----------------------------------------------------------
 echo   [4/4] Firewall rules...
 
-powershell -NoProfile -ExecutionPolicy Bypass -Command "try { if (!(Get-NetFirewallRule -DisplayName 'TouchPlay TCP' -ErrorAction SilentlyContinue)) { New-NetFirewallRule -DisplayName 'TouchPlay TCP' -Direction Inbound -Action Allow -Protocol TCP -LocalPort 8765 | Out-Null; Write-Host '  [OK] TouchPlay TCP     port 8765  (controller)' } else { Write-Host '  [--] TouchPlay TCP     already exists' }; if (!(Get-NetFirewallRule -DisplayName 'TouchPlay UDP' -ErrorAction SilentlyContinue)) { New-NetFirewallRule -DisplayName 'TouchPlay UDP' -Direction Inbound -Action Allow -Protocol UDP -LocalPort 8766 | Out-Null; Write-Host '  [OK] TouchPlay UDP     port 8766  (discovery)' } else { Write-Host '  [--] TouchPlay UDP     already exists' }; if (!(Get-NetFirewallRule -DisplayName 'TouchPlay Stream' -ErrorAction SilentlyContinue)) { New-NetFirewallRule -DisplayName 'TouchPlay Stream' -Direction Inbound -Action Allow -Protocol TCP -LocalPort 8767 | Out-Null; Write-Host '  [OK] TouchPlay Stream  port 8767  (game stream)' } else { Write-Host '  [--] TouchPlay Stream  already exists' } } catch { Write-Host '  [!!] Firewall config blocked by Windows.' }"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "try { $rules = @(@('TouchPlay TCP','TCP',8765,'controller'),@('TouchPlay UDP','UDP',8766,'discovery'),@('TouchPlay Stream','TCP',8767,'game stream'),@('TouchPlay Files','TCP',8768,'file transfer'),@('TouchPlay Cast','TCP',8769,'cam + projector')); foreach ($r in $rules) { if (!(Get-NetFirewallRule -DisplayName $r[0] -ErrorAction SilentlyContinue)) { New-NetFirewallRule -DisplayName $r[0] -Direction Inbound -Action Allow -Protocol $r[1] -LocalPort $r[2] | Out-Null; Write-Host ('  [OK] {0,-17} port {1}  ({2})' -f $r[0],$r[2],$r[3]) } else { Write-Host ('  [--] {0,-17} already exists' -f $r[0]) } } } catch { Write-Host '  [!!] Firewall config blocked by Windows.' }"
 
 echo.
 

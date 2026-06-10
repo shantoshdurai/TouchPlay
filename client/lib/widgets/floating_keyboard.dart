@@ -1,3 +1,4 @@
+import 'dart:ui';
 import 'package:flutter/material.dart';
 import '../services/websocket_service.dart';
 
@@ -37,22 +38,21 @@ class _FloatingKeyboardState extends State<FloatingKeyboard> {
     });
   }
 
-  Widget _btn(String label, VoidCallback onTap, {double width = 36}) => GestureDetector(
+  Widget _btn(String label, VoidCallback onTap, {double width = 34}) => GestureDetector(
     onTap: onTap,
     child: Container(
       width: width,
-      height: 40,
-      margin: const EdgeInsets.all(2),
+      height: 42,
+      margin: const EdgeInsets.symmetric(horizontal: 3, vertical: 4),
       decoration: BoxDecoration(
-        color: const Color(0xFF24243A),
+        color: const Color(0xFF3A3A4C), // Lighter, minimalistic key color
         borderRadius: BorderRadius.circular(6),
-        border: Border.all(color: Colors.white12),
         boxShadow: [
-          BoxShadow(color: Colors.black.withValues(alpha: 0.4), blurRadius: 4, offset: const Offset(0, 2)),
+          BoxShadow(color: Colors.black.withValues(alpha: 0.3), blurRadius: 1, offset: const Offset(0, 1.5)),
         ],
       ),
       alignment: Alignment.center,
-      child: Text(label, style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w500)),
+      child: Text(label, style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w400)),
     ),
   );
 
@@ -60,14 +60,13 @@ class _FloatingKeyboardState extends State<FloatingKeyboard> {
     onTap: onTap,
     child: Container(
       width: width,
-      height: 40,
-      margin: const EdgeInsets.all(2),
+      height: 42,
+      margin: const EdgeInsets.symmetric(horizontal: 3, vertical: 4),
       decoration: BoxDecoration(
-        color: color ?? const Color(0xFF32324A),
+        color: color ?? const Color(0xFF45455A),
         borderRadius: BorderRadius.circular(6),
-        border: Border.all(color: Colors.white24),
         boxShadow: [
-          BoxShadow(color: Colors.black.withValues(alpha: 0.4), blurRadius: 4, offset: const Offset(0, 2)),
+          BoxShadow(color: Colors.black.withValues(alpha: 0.3), blurRadius: 1, offset: const Offset(0, 1.5)),
         ],
       ),
       alignment: Alignment.center,
@@ -84,58 +83,70 @@ class _FloatingKeyboardState extends State<FloatingKeyboard> {
         onPanUpdate: (d) => setState(() => _pos += d.delta),
         child: Material(
           color: Colors.transparent,
-          child: Container(
-            padding: const EdgeInsets.all(8),
-            decoration: BoxDecoration(
-              color: const Color(0xEE0D0D14),
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: const Color(0xFF24243A), width: 1.5),
-              boxShadow: [
-                BoxShadow(color: Colors.black.withValues(alpha: 0.6), blurRadius: 24, offset: const Offset(0, 12)),
-              ],
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                // Header (Drag handle & Close)
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    const Padding(
-                      padding: EdgeInsets.only(left: 8),
-                      child: Icon(Icons.drag_indicator, color: Colors.white38, size: 16),
-                    ),
-                    const Text('KEYBOARD', style: TextStyle(color: Colors.white54, fontSize: 10, fontWeight: FontWeight.bold, letterSpacing: 1)),
-                    GestureDetector(
-                      onTap: widget.onClose,
-                      child: const Padding(
-                        padding: EdgeInsets.all(4.0),
-                        child: Icon(Icons.close, color: Colors.white54, size: 18),
-                      ),
-                    ),
-                  ],
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(16),
+            child: BackdropFilter(
+              filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 12),
+                decoration: BoxDecoration(
+                  color: const Color(0xD91E1E2A), // Translucent dark background
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: Colors.white.withValues(alpha: 0.1), width: 1),
                 ),
-                const SizedBox(height: 6),
-                
-                // Keys
-                for (final row in _keys)
-                  Row(
-                    mainAxisSize: MainAxisSize.min,
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: row.map((c) => _btn(c, () => _send(c))).toList(),
-                  ),
-                
-                // Bottom row (Space, Backspace, Enter)
-                Row(
+                child: Column(
                   mainAxisSize: MainAxisSize.min,
-                  mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    _btn('SPACE', () => _send(' '), width: 160),
-                    _iconBtn(Icons.backspace, _backspace, color: const Color(0xFFE53935)),
-                    _iconBtn(Icons.keyboard_return, _enter, width: 60, color: const Color(0xFF00D4FF).withValues(alpha: 0.2)),
+                    // Header (Drag handle & Close)
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Padding(
+                          padding: EdgeInsets.only(left: 8),
+                          child: Icon(Icons.drag_indicator, color: Colors.white38, size: 16),
+                        ),
+                        GestureDetector(
+                          onTap: widget.onClose,
+                          child: const Padding(
+                            padding: EdgeInsets.all(4.0),
+                            child: Icon(Icons.close, color: Colors.white54, size: 18),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    
+                    // Keys
+                    for (int i = 0; i < _keys.length; i++)
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          // Staggering offsets
+                          if (i == 2) const SizedBox(width: 17), // 'a' row offset
+                          if (i == 3) const SizedBox(width: 34), // 'z' row offset
+                          
+                          ..._keys[i].map((c) => _btn(c, () => _send(c))),
+                          
+                          if (i == 2) const SizedBox(width: 17),
+                          if (i == 3) const SizedBox(width: 34),
+                        ],
+                      ),
+                    
+                    // Bottom row (Space, Backspace, Enter)
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        _iconBtn(Icons.language, () {}, width: 42),
+                        _btn('space', () => _send(' '), width: 180),
+                        _iconBtn(Icons.backspace_outlined, _backspace, width: 48, color: const Color(0xFF505068)),
+                        _iconBtn(Icons.keyboard_return, _enter, width: 64, color: const Color(0xFF0081FF)),
+                      ],
+                    ),
                   ],
                 ),
-              ],
+              ),
             ),
           ),
         ),
