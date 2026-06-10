@@ -32,6 +32,13 @@ Mirror your phone screen into a window on the PC. Keeps casting while you switch
 - PC server: new file + cast ports (8768/8769) auto-added to the firewall; setup script updated
 - New `build-exe.bat` for building a standalone server EXE (no Python needed)
 
+## ⚡ NEW: standalone server EXE — no Python needed
+`TouchPlay-Server.exe` is a single file: download, double-click, play. No Python, no terminal, no pip. (Windows SmartScreen may warn because it's a new unsigned app — click "More info → Run anyway". First run still needs the ViGEm gamepad driver: run `TouchPlay-Setup.bat` once, or the gamepad feature won't work.)
+
+The classic Python zip remains available and is what power users / contributors should use.
+
 ## Update steps
 1. Install the new APK below
-2. Replace your PC server folder with `TouchPlay-PC-Server-v1.2.0.zip` and run `TouchPlay-Setup.bat` once (adds the two new firewall rules)
+2. PC server, either:
+   - **Easy:** download `TouchPlay-Server.exe` and run it (run `TouchPlay-Setup.bat` from the zip once if you've never installed the gamepad driver), or
+   - **Classic:** replace your server folder with `TouchPlay-PC-Server-v1.2.0.zip` and run `TouchPlay-Setup.bat` once (adds the two new firewall rules)
