@@ -3,7 +3,7 @@ description: Turn your phone into a gamepad for any game
 
 publish_to: 'none'
 
-version: 1.2.0+17
+version: 1.4.0+20
 
 environment:
   sdk: '>=3.0.0 <4.0.0'
@@ -38,6 +38,7 @@ flutter_launcher_icons:
   # circle/squircle that fills the shape (no more square-in-circle look).
   adaptive_icon_background: "#03A4FE"
   adaptive_icon_foreground: "assets/app_icon_foreground.png"
+  adaptive_icon_monochrome: "assets/app_icon_monochrome.png"
   min_sdk_android: 21
 
 flutter:

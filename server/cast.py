@@ -53,9 +53,15 @@ def _ensure_pump():
         return
     _pump_started = True
 
+    def window_size(w: int, h: int) -> tuple[int, int]:
+        """Window matching the frame's aspect ratio, capped so a portrait
+        phone frame never opens taller than the desktop."""
+        scale = min(1500 / w, 850 / h, 1.0)
+        return max(2, int(w * scale)), max(2, int(h * scale))
+
     def pump():
         import cv2
-        shown: set[str] = set()
+        shown: dict[str, tuple[int, int]] = {}   # key → last frame (w, h)
         while True:
             with _windows_lock:
                 boxes = dict(_windows)
@@ -66,7 +72,7 @@ def _ensure_pump():
                             cv2.destroyWindow(box.title)
                         except Exception:
                             pass
-                        shown.discard(key)
+                        shown.pop(key, None)
                     with _windows_lock:
                         _windows.pop(key, None)
                     continue
@@ -74,11 +80,16 @@ def _ensure_pump():
                     frame = box.frame
                     box.frame = None
                 if frame is not None:
+                    h, w = frame.shape[:2]
                     if key not in shown:
                         cv2.namedWindow(box.title, cv2.WINDOW_NORMAL)
-                        h, w = frame.shape[:2]
-                        cv2.resizeWindow(box.title, w, h)
-                        shown.add(key)
+                        cv2.resizeWindow(box.title, *window_size(w, h))
+                        shown[key] = (w, h)
+                    elif shown[key] != (w, h):
+                        # Phone rotated mid-cast — re-shape the window so the
+                        # picture keeps the phone's real aspect ratio.
+                        cv2.resizeWindow(box.title, *window_size(w, h))
+                        shown[key] = (w, h)
                     cv2.imshow(box.title, frame)
             cv2.waitKey(30)          # pumps the HighGUI event loop too
 
@@ -93,6 +104,7 @@ class _VirtualCamSink:
     def __init__(self):
         self.cam = None
         self.size = None
+        self.device = None   # set once the camera is actually open
 
     def push(self, frame_bgr) -> bool:
         import pyvirtualcam
@@ -100,13 +112,15 @@ class _VirtualCamSink:
         h, w = frame_bgr.shape[:2]
         if self.cam is None or self.size != (w, h):
             self.close()
-            self.cam = pyvirtualcam.Camera(width=w, height=h, fps=20,
+            self.cam = pyvirtualcam.Camera(width=w, height=h, fps=30,
                                            print_fps=False)
             self.size = (w, h)
+            self.device = self.cam.device
             _log(f"[green]●[/] Virtual camera live: [bold]{self.cam.device}[/] "
                  f"{w}×{h} — pick it in Discord/Zoom/OBS")
+        # No sleep_until_next_frame() here: the phone paces the stream, and
+        # sleeping in the executor just throttled the pipeline to <20 fps.
         self.cam.send(cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB))
-        self.cam.sleep_until_next_frame()
         return True
 
     def close(self):
@@ -152,8 +166,26 @@ async def cast_handler(websocket):
         return
 
     key = f"{mode}-{websocket.remote_address[0]}"
-    title = ("TouchPlay — Phone Camera" if mode == "camera"
-             else "TouchPlay — Projector")
+    # ASCII only: HighGUI window titles go through the ANSI API on Windows,
+    # so an em-dash renders as mojibake ("â€~").
+    title = ("TouchPlay - Phone Camera" if mode == "camera"
+             else "TouchPlay - Projector")
+
+    async def send_status(sink: str, device: str | None = None):
+        """Tell the phone what the frames actually land in (webcam vs window),
+        so its UI can stop claiming webcam mode when the driver is missing."""
+        try:
+            await websocket.send(json.dumps(
+                {"type": "cast_status", "sink": sink, "device": device}))
+        except Exception:
+            pass
+
+    # Handshake: lets the phone distinguish "new server, ready" from a dead
+    # port (old servers simply never send this — the phone tolerates that).
+    try:
+        await websocket.send(json.dumps({"type": "cast_ready", "mode": mode}))
+    except Exception:
+        pass
 
     vcam = None
     use_window = True
@@ -173,6 +205,7 @@ async def cast_handler(websocket):
         box = _Mailbox(title)
         with _windows_lock:
             _windows[key] = box
+        await send_status("window")
 
     _log(f"[cyan]▣[/] {phone} started "
          f"{'Virtual Cam' if mode == 'camera' else 'Projector'}")
@@ -182,6 +215,7 @@ async def cast_handler(websocket):
     def decode(buf: bytes):
         return cv2.imdecode(np.frombuffer(buf, np.uint8), cv2.IMREAD_COLOR)
 
+    vcam_announced = False
     try:
         async for msg in websocket:
             if not isinstance(msg, (bytes, bytearray)):
@@ -192,6 +226,9 @@ async def cast_handler(websocket):
             if vcam is not None:
                 try:
                     await loop.run_in_executor(None, vcam.push, frame)
+                    if not vcam_announced and vcam.device:
+                        vcam_announced = True
+                        await send_status("webcam", vcam.device)
                 except Exception as e:
                     # Driver missing/locked at runtime — fall back to a window.
                     _log(f"[yellow]Virtual cam unavailable ({e}) — "
@@ -202,6 +239,7 @@ async def cast_handler(websocket):
                     box = _Mailbox(title)
                     with _windows_lock:
                         _windows[key] = box
+                    await send_status("window")
             if box is not None:
                 with box.lock:
                     box.frame = frame

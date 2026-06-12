@@ -16,6 +16,7 @@ import '../widgets/action_button.dart';
 import '../widgets/floating_keyboard.dart';
 import '../widgets/forza_controls.dart';
 import '../widgets/custom_controls.dart';
+import '../widgets/ambience.dart';
 import 'layout_editor.dart';
 
 // Split out of this file for navigability; they remain part of the same library
@@ -41,8 +42,11 @@ class _ControllerScreenState extends State<ControllerScreen> {
   // Connection state is a ValueNotifier so a reconnect repaints only the tiny
   // chip + stream button (via ValueListenableBuilder) instead of rebuilding the
   // entire controller tree — keeps gameplay at a locked frame rate.
+  // Seed with the LIVE state: the link is usually already up from the home
+  // menu, and the stream only emits on change — starting at `disconnected`
+  // left the chip saying "Offline" forever (and blocked screen mirroring).
   final ValueNotifier<ws.ConnectionState> _conn =
-      ValueNotifier(ws.ConnectionState.disconnected);
+      ValueNotifier(WebSocketService.instance.state);
   bool _mouseMode        = false;
   bool _keyboardMode     = false;
   bool _showSettings     = false;
@@ -341,16 +345,20 @@ class _ControllerScreenState extends State<ControllerScreen> {
       canPop: false,
       onPopInvokedWithResult: _onBackInvoked,
       child: Scaffold(
-      backgroundColor: const Color(0xFF080810),
+      backgroundColor: Colors.black,
       body: Stack(
         children: [
-          // 1. Background — game stream if active, else standard glow.
+          // 1. Background — game stream if active, else the same living
+          // ambience as the home menu (fewer particles + stronger scrim so
+          // every frame stays with the controls, not the backdrop).
           // The video layer repaints in isolation (RepaintBoundary +
           // ValueListenableBuilder) so 60fps frame updates never rebuild the HUD.
           if (_streamOn)
             const Positioned.fill(child: _VideoLayer())
           else
-            _BgGlow(),
+            const Positioned.fill(
+                child: AmbientBackground(
+                    clusterCount: 24, ambientCount: 14, scrim: 0.30)),
 
           // 2. Active game layout
           if (!_hideHud) ...[
@@ -538,7 +546,10 @@ class _ControllerScreenState extends State<ControllerScreen> {
                   'plus the pedals & buttons, all movable & resizable.',
               onPick: (style) {
                 setState(() => _showForzaEditChooser = false);
-                _openEditor(cloneForza(style));
+                _openEditor(cloneForza(
+                    style,
+                    MediaQuery.of(context).size,
+                    WebSocketService.instance.sensitivity));
               },
               onClose: () => setState(() => _showForzaEditChooser = false),
             ),
@@ -1146,8 +1157,10 @@ class _StickPainter extends CustomPainter {
       for (int j = 0; j < 5; j++) {
         final dx = sx + j * spacing - tp.dx;
         final dy = sy + i * spacing - tp.dy;
-        if (dx * dx + dy * dy < (thumbR * 0.6) * (thumbR * 0.6))
-          canvas.drawCircle(Offset(sx + j * spacing, sy + i * spacing), 1.5, dot);
+        if (dx * dx + dy * dy < (thumbR * 0.6) * (thumbR * 0.6)) {
+          canvas.drawCircle(
+              Offset(sx + j * spacing, sy + i * spacing), 1.5, dot);
+        }
       }
     }
   }
@@ -1236,39 +1249,6 @@ class _MouseBtnState extends State<_MouseBtn> {
 
 // ── Settings panel (profile-aware) ────────────────────────────────────────────
 
-class _BgGlow extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) => CustomPaint(painter: _GlowPainter(), size: Size.infinite);
-}
-
-class _GlowPainter extends CustomPainter {
-  @override
-  void paint(Canvas canvas, Size s) {
-    // Cross-hatch subtle background pattern matching the reference image
-    final paint = Paint()
-      ..color = Colors.white.withValues(alpha: 0.02)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.0;
-
-    final int spacing = 40;
-
-    // Draw diagonal lines
-    for (double i = -s.height; i < s.width; i += spacing) {
-      canvas.drawLine(Offset(i, 0), Offset(i + s.height, s.height), paint);
-    }
-    for (double i = s.width + s.height; i > 0; i -= spacing) {
-      canvas.drawLine(Offset(i, 0), Offset(i - s.height, s.height), paint);
-    }
-
-    // Retain subtle glow
-    final p = Paint()..maskFilter = const MaskFilter.blur(BlurStyle.normal, 80);
-    p.color = Colors.white.withValues(alpha: 0.03);
-    canvas.drawCircle(Offset(s.width * 0.2, s.height * 0.5), s.width * 0.3, p);
-    canvas.drawCircle(Offset(s.width * 0.8, s.height * 0.5), s.width * 0.3, p);
-  }
-  @override bool shouldRepaint(_) => false;
-}
-
 // ── Connection chip + Settings button ─────────────────────────────────────────
 
 class _SettingsBtn extends StatelessWidget {
@@ -1305,16 +1285,16 @@ class _StreamBtn extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
         decoration: BoxDecoration(
-          color: active ? const Color(0x3300D4FF) : const Color(0x99000000),
+          color: active ? const Color(0x336FB6FF) : const Color(0x99000000),
           borderRadius: BorderRadius.circular(20),
           border: Border.all(
-            color: active ? const Color(0xFF00D4FF) : Colors.white12,
+            color: active ? const Color(0xFF6FB6FF) : Colors.white12,
             width: 1,
           ),
         ),
         child: Icon(
           Icons.cast,
-          color: active ? const Color(0xFF00D4FF) : Colors.white60,
+          color: active ? const Color(0xFF6FB6FF) : Colors.white60,
           size: 16,
         ),
       ),
@@ -1341,7 +1321,7 @@ class _GamesBtn extends StatelessWidget {
         border: Border.all(color: Colors.white12, width: 1),
       ),
       child: Row(mainAxisSize: MainAxisSize.min, children: [
-        Icon(icon, color: const Color(0xFF00D4FF), size: 14),
+        Icon(icon, color: const Color(0xFF6FB6FF), size: 14),
         const SizedBox(width: 6),
         ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 120),
@@ -1370,11 +1350,11 @@ class _KeyboardBtn extends StatelessWidget {
     child: Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       decoration: BoxDecoration(
-        color: active ? const Color(0xFF00D4FF).withValues(alpha: 0.2) : const Color(0x33000000),
+        color: active ? const Color(0xFF6FB6FF).withValues(alpha: 0.2) : const Color(0x33000000),
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: active ? const Color(0xFF00D4FF) : Colors.white24, width: 1),
+        border: Border.all(color: active ? const Color(0xFF6FB6FF) : Colors.white24, width: 1),
       ),
-      child: Icon(Icons.keyboard, size: 16, color: active ? const Color(0xFF00D4FF) : Colors.white),
+      child: Icon(Icons.keyboard, size: 16, color: active ? const Color(0xFF6FB6FF) : Colors.white),
     ),
   );
 }

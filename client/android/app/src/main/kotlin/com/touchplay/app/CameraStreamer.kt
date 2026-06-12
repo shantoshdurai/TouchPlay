@@ -19,7 +19,8 @@ import java.io.ByteArrayOutputStream
 /**
  * Streams the phone camera as JPEG frames for the Virtual Cam feature.
  *
- * Camera2 → YUV_420_888 ImageReader → NV21 → YuvImage JPEG at ~15 fps, 640×480.
+ * Camera2 → YUV_420_888 ImageReader → NV21 → YuvImage JPEG at ~30 fps, up to
+ * 1280×720 (largest supported size at or below that, 16:9 preferred).
  * Frames go to [onFrame]; MainActivity forwards them to the PC over WebSocket.
  */
 class CameraStreamer(
@@ -53,12 +54,14 @@ class CameraStreamer(
             thread = HandlerThread("touchplay-cam").also { it.start() }
             val handler = Handler(thread!!.looper)
 
-            reader = ImageReader.newInstance(640, 480, ImageFormat.YUV_420_888, 3)
+            val size = pickSize(cm, id)
+            reader = ImageReader.newInstance(size.width, size.height,
+                ImageFormat.YUV_420_888, 3)
             reader!!.setOnImageAvailableListener({ r ->
                 val img = r.acquireLatestImage() ?: return@setOnImageAvailableListener
                 try {
                     val now = SystemClock.elapsedRealtime()
-                    if (now - lastFrame < 66) return@setOnImageAvailableListener  // ~15 fps
+                    if (now - lastFrame < 33) return@setOnImageAvailableListener  // ~30 fps
                     lastFrame = now
                     onFrame(toJpeg(img))
                 } catch (_: Exception) {
@@ -105,6 +108,23 @@ class CameraStreamer(
         } catch (_: Exception) {
             onResult(false)
             stop()
+        }
+    }
+
+    /** Largest YUV output ≤ 1280×720 — webcam-grade quality without melting
+     *  the JPEG encoder. Prefers 16:9 so the PC side gets a normal webcam
+     *  shape; falls back to 640×480 if the device reports nothing usable. */
+    private fun pickSize(cm: CameraManager, id: String): android.util.Size {
+        return try {
+            val map = cm.getCameraCharacteristics(id)
+                .get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP)
+            val sizes = map?.getOutputSizes(ImageFormat.YUV_420_888) ?: emptyArray()
+            val fitting = sizes.filter { it.width <= 1280 && it.height <= 720 }
+            val wide = fitting.filter { it.width * 9 == it.height * 16 }
+            (wide.ifEmpty { fitting }).maxByOrNull { it.width * it.height }
+                ?: android.util.Size(640, 480)
+        } catch (_: Exception) {
+            android.util.Size(640, 480)
         }
     }
 

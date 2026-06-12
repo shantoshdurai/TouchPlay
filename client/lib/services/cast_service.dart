@@ -28,7 +28,14 @@ class CastService {
   final ValueNotifier<int> fps = ValueNotifier<int>(0);
   final ValueNotifier<ui.Image?> preview = ValueNotifier<ui.Image?>(null);
 
+  /// What the PC actually does with our frames: 'webcam' (real virtual
+  /// camera), 'window' (preview-window fallback), or null (unknown / old
+  /// server that doesn't report it). [sinkDevice] is the webcam device name.
+  final ValueNotifier<String?> sink = ValueNotifier<String?>(null);
+  String? sinkDevice;
+
   WebSocketChannel? _channel;
+  StreamSubscription? _serverSub;
   StreamSubscription? _frameSub;
   Timer? _fpsTimer;
   int _frameCount = 0;
@@ -50,21 +57,46 @@ class CastService {
       return 'Connect to your PC first — start the TouchPlay server.';
     }
 
-    // 1. Open the cast socket and declare the mode.
-    try {
-      final channel =
-          WebSocketChannel.connect(Uri.parse('ws://$ip:$_castPort'));
-      await channel.ready.timeout(const Duration(seconds: 4));
-      channel.sink.add(json.encode({
-        'type': 'hello',
-        'mode': mode,
-        'name': 'TouchPlay phone',
-      }));
-      _channel = channel;
-    } catch (_) {
-      return 'PC server is running an old version — update it from the '
-          'Releases page (the cast port did not answer).';
+    // 1. Open the cast socket and declare the mode. One quick retry: a phone
+    // hopping Wi-Fi power states can time out the first dial spuriously.
+    WebSocketChannel? channel;
+    for (var attempt = 0; attempt < 2 && channel == null; attempt++) {
+      try {
+        final c = WebSocketChannel.connect(Uri.parse('ws://$ip:$_castPort'));
+        await c.ready.timeout(const Duration(seconds: 4));
+        channel = c;
+      } catch (_) {
+        if (attempt == 0) {
+          await Future.delayed(const Duration(milliseconds: 600));
+        }
+      }
     }
+    if (channel == null) {
+      return 'Couldn\'t reach the PC\'s cast service (port $_castPort). '
+          'Make sure the TouchPlay server is running and allowed through '
+          'Windows Firewall (run it once as Administrator), or update it '
+          'from the Releases page if it\'s an old version.';
+    }
+    sinkDevice = null;
+    sink.value = null;
+    // Status messages from the server (cast_ready / cast_status). Old servers
+    // send nothing here — everything still works, we just can't show details.
+    _serverSub = channel.stream.listen((data) {
+      if (data is! String) return;
+      try {
+        final msg = json.decode(data) as Map<String, dynamic>;
+        if (msg['type'] == 'cast_status') {
+          sinkDevice = msg['device'] as String?;
+          sink.value = msg['sink'] as String?;
+        }
+      } catch (_) {}
+    }, onError: (_) {}, cancelOnError: false);
+    channel.sink.add(json.encode({
+      'type': 'hello',
+      'mode': mode,
+      'name': 'TouchPlay phone',
+    }));
+    _channel = channel;
 
     // 2. Start the native producer.
     bool ok;
@@ -131,11 +163,15 @@ class CastService {
     } catch (_) {}
     await _frameSub?.cancel();
     _frameSub = null;
+    await _serverSub?.cancel();
+    _serverSub = null;
     _closeSocket();
     _fpsTimer?.cancel();
     _fpsTimer = null;
     _frameCount = 0;
     fps.value = 0;
+    sink.value = null;
+    sinkDevice = null;
     final old = preview.value;
     preview.value = null;
     old?.dispose();

@@ -1,10 +1,88 @@
 import 'dart:async';
+import 'dart:math';
 import 'dart:ui' show ImageFilter;
-import 'package:flutter/material.dart';
+// Hide Flutter's ConnectionState (for FutureBuilder/StreamBuilder) so our
+// websocket ConnectionState can be imported without an ambiguity error.
+import 'package:flutter/material.dart' hide ConnectionState;
+import 'package:flutter/scheduler.dart' show Ticker;
 import 'package:audioplayers/audioplayers.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../services/haptics.dart';
-import '../services/websocket_service.dart' show WebSocketService;
+import '../widgets/ambience.dart';
+import '../services/websocket_service.dart'
+    show WebSocketService, ConnectionState;
+
+// ── Connection state indicator ────────────────────────────────────────────────
+class _ConnectionDot extends StatefulWidget {
+  final ConnectionState state;
+  const _ConnectionDot({super.key, required this.state});
+
+  @override
+  State<_ConnectionDot> createState() => _ConnectionDotState();
+}
+
+class _ConnectionDotState extends State<_ConnectionDot>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _pulse;
+
+  @override
+  void initState() {
+    super.initState();
+    _pulse = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 900),
+    )..repeat(reverse: true);
+  }
+
+  @override
+  void dispose() {
+    _pulse.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (widget.state == ConnectionState.connected) {
+      return Row(mainAxisSize: MainAxisSize.min, children: [
+        Container(
+          width: 6,
+          height: 6,
+          decoration:
+              const BoxDecoration(color: _accent, shape: BoxShape.circle),
+        ),
+        const SizedBox(width: 5),
+        const Text('PC',
+            style: TextStyle(
+                color: _accent,
+                fontSize: 10,
+                fontWeight: FontWeight.w600,
+                letterSpacing: 0.3)),
+      ]);
+    }
+    if (widget.state == ConnectionState.connecting) {
+      return AnimatedBuilder(
+        animation: _pulse,
+        builder: (_, __) => Container(
+          width: 6,
+          height: 6,
+          decoration: BoxDecoration(
+            color: _accent.withValues(alpha: 0.25 + _pulse.value * 0.75),
+            shape: BoxShape.circle,
+          ),
+        ),
+      );
+    }
+    // disconnected
+    return Container(
+      width: 5,
+      height: 5,
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.28),
+        shape: BoxShape.circle,
+      ),
+    );
+  }
+}
 
 class HomeMenu extends StatefulWidget {
   final VoidCallback onGamepad;
@@ -42,13 +120,13 @@ class _Feature {
   });
 }
 
-const _accent = Color(0xFF00D4FF);
+const _accent = Color(0xFF6FB6FF);
 
 // PS5-style STRICT icon spacing and sizing (small scaled for perfect proportion)
-const double _slotSel = 74.0;
-const double _slotUnsel = 46.0;
-const double _iconSel = 64.0;
-const double _iconUnsel = 36.0;
+const double _slotSel = 102.0;
+const double _slotUnsel = 52.0;
+const double _iconSel = 88.0;
+const double _iconUnsel = 42.0;
 const double _railLeftOffset = 20.0;
 
 class _HomeMenuState extends State<HomeMenu> with TickerProviderStateMixin {
@@ -57,14 +135,35 @@ class _HomeMenuState extends State<HomeMenu> with TickerProviderStateMixin {
   bool _showSearch = false;
   late final List<_Feature> _features;
 
-  // Dynamic background color palettes matching each feature's thumbnail
+  // Particle animation
+  final _rng = Random(42);
+  late final List<AmbientDust> _particles;
+  final _tickNotifier = ValueNotifier<double>(0);
+  final _accentColorNotifier =
+      ValueNotifier<Color>(_featureGradients[0][0]);
+  late final Ticker _ticker;
+  late final AnimationController _accentAnim;
+  ColorTween _accentTween = ColorTween(
+    begin: _featureGradients[0][0],
+    end: _featureGradients[0][0],
+  );
+
+  // Connection state
+  ConnectionState _wsState = ConnectionState.disconnected;
+  StreamSubscription<ConnectionState>? _wsSub;
+
+  // One monochrome palette for every feature — the PS5 mock keeps the same
+  // near-black backdrop with cool white-blue dust and lamp light no matter
+  // which tile is focused; the tiles themselves carry the only color (their
+  // baked-in blue underglow). First color = the accent (drives particles and
+  // lamp tint), the pair below it is the barely-tinted dark backdrop gradient.
   static const List<List<Color>> _featureGradients = [
-    [Color(0xFF0088FF), Color(0xFF000B22)], // Gamepad (Blue/Cyan)
-    [Color(0xFF8800FF), Color(0xFF110022)], // Mouse (Purple/Violet)
-    [Color(0xFF00AAAA), Color(0xFF001A1A)], // Mirror (Teal)
-    [Color(0xFFDD6600), Color(0xFF220B00)], // Files (Orange/Brown)
-    [Color(0xFFFF2266), Color(0xFF22000B)], // Camera (Pink/Rose)
-    [Color(0xFF00BB44), Color(0xFF001A0B)], // Projector (Emerald)
+    [Color(0xFF8FB6E0), Color(0xFF0C1118), Color(0xFF04060A)], // Gamepad
+    [Color(0xFF8FB6E0), Color(0xFF0C1118), Color(0xFF04060A)], // Mouse
+    [Color(0xFF8FB6E0), Color(0xFF0C1118), Color(0xFF04060A)], // Mirror
+    [Color(0xFF8FB6E0), Color(0xFF0C1118), Color(0xFF04060A)], // Files
+    [Color(0xFF8FB6E0), Color(0xFF0C1118), Color(0xFF04060A)], // Camera
+    [Color(0xFF8FB6E0), Color(0xFF0C1118), Color(0xFF04060A)], // Projector
   ];
 
   late final AudioPlayer _navPlayer;
@@ -114,6 +213,45 @@ class _HomeMenuState extends State<HomeMenu> with TickerProviderStateMixin {
     _clockTimer = Timer.periodic(const Duration(seconds: 15), (_) {
       if (mounted) setState(() => _clock = _nowStr());
     });
+
+    // PS5-style mix: a dense drifting dust column + ambient specks scattered
+    // across the whole screen.
+    _particles = [
+      ...List.generate(60, (_) => AmbientDust(_rng, inCluster: true)),
+      ...List.generate(36, (_) => AmbientDust(_rng, inCluster: false)),
+    ];
+    _accentAnim = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 500),
+    )..addListener(() {
+        _accentColorNotifier.value = _accentTween.evaluate(_accentAnim)!;
+      });
+    _ticker = createTicker((elapsed) {
+      _tickNotifier.value = elapsed.inMilliseconds / 1000.0;
+    });
+    _ticker.start();
+
+    _wsState = WebSocketService.instance.state;
+    _wsSub = WebSocketService.instance.stateStream.listen((s) {
+      if (mounted) setState(() => _wsState = s);
+    });
+  }
+
+  bool _coversPrecached = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_coversPrecached) return;
+    _coversPrecached = true;
+    // Decode every cover (and its dim variant) up-front — without this the
+    // first visit to each tile flashes black while the PNG decodes.
+    for (final f in _features) {
+      precacheImage(AssetImage(f.assetPath), context);
+      precacheImage(
+          AssetImage(f.assetPath.replaceFirst('.png', '_dim.png')), context,
+          onError: (_, __) {});
+    }
   }
 
   static String _nowStr() {
@@ -148,6 +286,11 @@ class _HomeMenuState extends State<HomeMenu> with TickerProviderStateMixin {
     _sfx(_navPlayer);
     Haptics.instance.tick();
     setState(() => _selectedIndex = i);
+    _accentTween = ColorTween(
+      begin: _accentColorNotifier.value,
+      end: _featureGradients[i][0],
+    );
+    _accentAnim.forward(from: 0);
   }
 
   void _move(int dir) => _select(_selectedIndex + dir);
@@ -183,6 +326,11 @@ class _HomeMenuState extends State<HomeMenu> with TickerProviderStateMixin {
     _navPlayer.dispose();
     _selectPlayer.dispose();
     _backPlayer.dispose();
+    _ticker.dispose();
+    _accentAnim.dispose();
+    _tickNotifier.dispose();
+    _accentColorNotifier.dispose();
+    _wsSub?.cancel();
     super.dispose();
   }
 
@@ -191,22 +339,43 @@ class _HomeMenuState extends State<HomeMenu> with TickerProviderStateMixin {
     final w = MediaQuery.of(context).size.width;
     return Scaffold(
       backgroundColor: Colors.black,
+      // Never resize for the keyboard — with the default the whole menu
+      // (rail, pill, face cluster, particles) jumped up when search opened.
+      resizeToAvoidBottomInset: false,
       body: Stack(
         children: [
-          // Dynamic animated background blending
+          // Near-black backdrop, faintly tinted, lit from where the lamp sits
+          // (right edge) — animated on selection change.
           Positioned.fill(
             child: AnimatedContainer(
               duration: const Duration(milliseconds: 600),
               curve: Curves.easeOutCubic,
               decoration: BoxDecoration(
                 gradient: RadialGradient(
-                  center: const Alignment(-0.3, -0.3),
-                  radius: 1.5,
-                  colors: _featureGradients[_selectedIndex],
+                  center: const Alignment(1.0, -0.5),
+                  radius: 1.8,
+                  colors: [
+                    _featureGradients[_selectedIndex][1],
+                    _featureGradients[_selectedIndex][2],
+                  ],
                 ),
               ),
             ),
           ),
+          // Floating particle layer — continuous 60fps looping animation
+          Positioned.fill(
+            child: RepaintBoundary(
+              child: CustomPaint(
+                painter: AmbientPainter(
+                  tickNotifier: _tickNotifier,
+                  accentNotifier: _accentColorNotifier,
+                  particles: _particles,
+                ),
+              ),
+            ),
+          ),
+          // Gentle vignette only — the backdrop is already near-black, this
+          // just grounds the bottom edge like the PS5 menu.
           const Positioned.fill(
             child: DecoratedBox(
               decoration: BoxDecoration(
@@ -214,9 +383,9 @@ class _HomeMenuState extends State<HomeMenu> with TickerProviderStateMixin {
                   begin: Alignment.topCenter,
                   end: Alignment.bottomCenter,
                   colors: [
-                    Color(0xBB000000),
-                    Color(0x66000000),
-                    Color(0xDD000000)
+                    Color(0x33000000),
+                    Color(0x11000000),
+                    Color(0x77000000),
                   ],
                   stops: [0.0, 0.4, 1.0],
                 ),
@@ -239,11 +408,13 @@ class _HomeMenuState extends State<HomeMenu> with TickerProviderStateMixin {
             ),
           ),
 
-          // Hidden left navigation joystick
+          // Hidden left navigation joystick — reaches the bottom edge; the
+          // Launch pill and face cluster sit later in the Stack so they stay
+          // tappable above it.
           Positioned(
             left: 0,
             top: 160,
-            bottom: 70,
+            bottom: 0,
             width: w * 0.5,
             child: _NavStick(onPrev: () => _move(-1), onNext: () => _move(1)),
           ),
@@ -267,6 +438,13 @@ class _HomeMenuState extends State<HomeMenu> with TickerProviderStateMixin {
             _SearchOverlay(
               features: _features,
               onPick: (i) {
+                if (i != _selectedIndex) {
+                  _accentTween = ColorTween(
+                    begin: _accentColorNotifier.value,
+                    end: _featureGradients[i][0],
+                  );
+                  _accentAnim.forward(from: 0);
+                }
                 setState(() {
                   _showSearch = false;
                   _selectedIndex = i;
@@ -288,16 +466,18 @@ class _HomeMenuState extends State<HomeMenu> with TickerProviderStateMixin {
           children: [
             const Text('TouchPlay',
                 style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 16,
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: 0.5)),
+                    color: Color(0xFFE9ECF2),
+                    fontSize: 20,
+                    fontWeight: FontWeight.w600,
+                    letterSpacing: 0.4)),
             const SizedBox(width: 6),
-            Container(
-                width: 5,
-                height: 5,
-                decoration: const BoxDecoration(
-                    color: _accent, shape: BoxShape.circle)),
+            AnimatedSwitcher(
+              duration: const Duration(milliseconds: 250),
+              child: _ConnectionDot(
+                key: ValueKey(_wsState),
+                state: _wsState,
+              ),
+            ),
             const Spacer(),
             IconButton(
               icon: const Icon(Icons.search, color: Colors.white, size: 22),
@@ -320,12 +500,24 @@ class _HomeMenuState extends State<HomeMenu> with TickerProviderStateMixin {
 
   // ── Icon rail ─────────────────────────────────────────────────────────────────
   Widget _rail() => SizedBox(
-        height: 80, // Accommodates the centered focused icon precisely
+        height: 108, // Accommodates the centered focused icon precisely
         child: Padding(
           padding: const EdgeInsets.only(left: _railLeftOffset),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: List.generate(_features.length, _slotFor),
+          child: Align(
+            alignment: Alignment.centerLeft,
+            // scaleDown lets the rail shrink as one piece on narrow (portrait)
+            // screens instead of overflowing; landscape renders 1:1.
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: Alignment.centerLeft,
+              child: SizedBox(
+                height: 108,
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: List.generate(_features.length, _slotFor),
+                ),
+              ),
+            ),
           ),
         ),
       );
@@ -348,14 +540,28 @@ class _HomeMenuState extends State<HomeMenu> with TickerProviderStateMixin {
     final size = selected ? _iconSel : _iconUnsel;
 
     if (!selected) {
+      // Unselected tiles use the "dim" variant (same art, blue underglow
+      // removed) so only the focused tile lights up. Until a *_dim.png is
+      // generated, errorBuilder falls back to the glowing original.
+      final dimPath = f.assetPath.replaceFirst('.png', '_dim.png');
       return GestureDetector(
         onTap: () => _select(i),
         child: Opacity(
-          opacity: 0.6,
+          opacity: 0.85,
           child: ClipRRect(
-            borderRadius: BorderRadius.circular(8),
-            child: Image.asset(f.assetPath,
-                width: size, height: size, fit: BoxFit.cover),
+            borderRadius: BorderRadius.circular(9),
+            child: Image.asset(
+              dimPath,
+              width: size,
+              height: size,
+              fit: BoxFit.cover,
+              gaplessPlayback: true,
+              errorBuilder: (_, __, ___) => Image.asset(f.assetPath,
+                  width: size,
+                  height: size,
+                  fit: BoxFit.cover,
+                  gaplessPlayback: true),
+            ),
           ),
         ),
       );
@@ -375,15 +581,18 @@ class _HomeMenuState extends State<HomeMenu> with TickerProviderStateMixin {
           child: child,
         ),
         child: Container(
-          padding: const EdgeInsets.all(2),
+          padding: const EdgeInsets.all(3),
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: Colors.white, width: 2.0),
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(color: Colors.white, width: 2.4),
           ),
           child: ClipRRect(
-            borderRadius: BorderRadius.circular(10),
+            borderRadius: BorderRadius.circular(14),
             child: Image.asset(f.assetPath,
-                width: size, height: size, fit: BoxFit.cover),
+                width: size,
+                height: size,
+                fit: BoxFit.cover,
+                gaplessPlayback: true),
           ),
         ),
       ),
@@ -404,120 +613,112 @@ class _HomeMenuState extends State<HomeMenu> with TickerProviderStateMixin {
           key: ValueKey<int>(_selectedIndex),
           mainAxisSize: MainAxisSize.min,
           children: [
-            Text(_features[_selectedIndex].title,
+            Text(_features[_selectedIndex].title.toUpperCase(),
                 style: const TextStyle(
                     color: Colors.white,
-                    fontSize: 14,
-                    fontWeight: FontWeight.w500,
-                    letterSpacing: 0.2)),
+                    fontSize: 11.5,
+                    fontWeight: FontWeight.w600,
+                    letterSpacing: 2.2)),
           ],
         ),
       ),
     );
   }
 
-  // ── Launch pill ───────────────────────────────────────────────────────────────
+  // ── Launch pill — frosted white, PS-cross glyph, soft outer glow ──────────────
   Widget _launchPill() {
-    return _glass(
-      radius: 20,
+    return GestureDetector(
       onTap: _launch,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 9),
+        decoration: BoxDecoration(
+          color: const Color(0xFFE9EDF4),
+          borderRadius: BorderRadius.circular(28),
+          boxShadow: [
+            BoxShadow(
+                color: Colors.white.withValues(alpha: 0.30),
+                blurRadius: 26,
+                spreadRadius: 2),
+            BoxShadow(
+                color: Colors.black.withValues(alpha: 0.40),
+                blurRadius: 10,
+                offset: const Offset(0, 4)),
+          ],
+        ),
         child: Row(mainAxisSize: MainAxisSize.min, children: [
-          _aGlyph(14),
+          _aGlyph(26),
           const SizedBox(width: 10),
           const Text('Launch',
               style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 14,
+                  color: Color(0xFF10141B),
+                  fontSize: 15,
                   fontWeight: FontWeight.w600)),
         ]),
       ),
     );
   }
 
-  // ── Face cluster (translucent A/B/X/Y) ────────────────────────────────────────
+  // ── Face cluster (Xbox letters — we emulate an Xbox pad; quiet at rest,
+  // the confirm button A carries the glowing blue focus ring) ──────────────────
   Widget _faceCluster() => SizedBox(
-        width: 86,
-        height: 86,
+        width: 96,
+        height: 96,
         child: Stack(alignment: Alignment.center, children: [
           Align(
               alignment: Alignment.topCenter,
-              child:
-                  _GlassFaceButton(size: 30, onTap: _openSettings, label: 'Y')),
+              child: _FaceButton(label: 'Y', size: 32, onTap: _openSettings)),
           Align(
               alignment: Alignment.centerLeft,
-              child: _GlassFaceButton(
-                  size: 30, onTap: () => _move(-1), label: 'X')),
+              child:
+                  _FaceButton(label: 'X', size: 32, onTap: () => _move(-1))),
           Align(
               alignment: Alignment.centerRight,
-              child: _GlassFaceButton(
-                  size: 30, onTap: () => _move(1), label: 'B')),
+              child: _FaceButton(label: 'B', size: 32, onTap: () => _move(1))),
           Align(
               alignment: Alignment.bottomCenter,
-              child: _GlassFaceButton(
-                  size: 30, accent: true, onTap: _launch, label: 'A')),
+              child: _FaceButton(
+                  label: 'A', size: 38, highlight: true, onTap: _launch)),
         ]),
       );
 
-  Widget _aGlyph(double size) => Container(
-        width: size + 8,
-        height: size + 8,
+  // Dark circle with a white "A" — the glyph inside the Launch pill.
+  Widget _aGlyph(double d) => Container(
+        width: d,
+        height: d,
         alignment: Alignment.center,
-        decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            border: Border.all(color: _accent, width: 1.4)),
+        decoration: const BoxDecoration(
+            shape: BoxShape.circle, color: Color(0xFF141A23)),
         child: Text('A',
             style: TextStyle(
-                color: _accent,
-                fontSize: size * 0.8,
-                fontWeight: FontWeight.w700)),
+                color: Colors.white,
+                fontSize: d * 0.5,
+                fontWeight: FontWeight.w800,
+                height: 1.0)),
       );
 
   // ── Settings overlay ──────────────────────────────────────────────────────────
   Widget _settingsOverlay() => _SettingsPanel(onClose: _closeSettings);
-
-  // ── Glass helpers ─────────────────────────────────────────────────────────────
-  Widget _glass(
-          {required Widget child,
-          required VoidCallback onTap,
-          double radius = 16}) =>
-      GestureDetector(
-        onTap: onTap,
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(radius),
-          child: BackdropFilter(
-            filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
-            child: Container(
-              decoration: BoxDecoration(
-                color: Colors.white.withValues(alpha: 0.10),
-                borderRadius: BorderRadius.circular(radius),
-                border: Border.all(color: Colors.white.withValues(alpha: 0.2)),
-              ),
-              child: child,
-            ),
-          ),
-        ),
-      );
 }
 
-// ── Translucent press-animated face button ────────────────────────────────────
-class _GlassFaceButton extends StatefulWidget {
-  const _GlassFaceButton(
+// ── Xbox-letter face buttons ──────────────────────────────────────────────────
+// Translucent press-animated circle with a quiet letter (no loud ABXY colors).
+// `highlight` = the confirm button A: it gets the glowing blue focus ring.
+class _FaceButton extends StatefulWidget {
+  const _FaceButton(
       {required this.label,
       required this.onTap,
       this.size = 34,
-      this.accent = false});
+      this.highlight = false});
   final String label;
   final VoidCallback onTap;
   final double size;
-  final bool accent;
+  final bool highlight;
 
   @override
-  State<_GlassFaceButton> createState() => _GlassFaceButtonState();
+  State<_FaceButton> createState() => _FaceButtonState();
 }
 
-class _GlassFaceButtonState extends State<_GlassFaceButton> {
+class _FaceButtonState extends State<_FaceButton> {
   bool _p = false;
 
   @override
@@ -533,31 +734,43 @@ class _GlassFaceButtonState extends State<_GlassFaceButton> {
       child: AnimatedScale(
         scale: _p ? 0.9 : 1.0,
         duration: const Duration(milliseconds: 80),
-        child: ClipOval(
-          child: BackdropFilter(
-            filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
-            child: Container(
-              width: widget.size,
-              height: widget.size,
-              alignment: Alignment.center,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: _p
-                    ? Colors.white.withValues(alpha: 0.24)
-                    : Colors.white.withValues(alpha: 0.1),
-                border: Border.all(
-                  color: widget.accent
-                      ? _accent.withValues(alpha: 0.9)
-                      : Colors.white.withValues(alpha: 0.24),
-                  width: widget.accent ? 1.6 : 1,
+        // Glow lives on this outer container so ClipOval can't cut it off.
+        child: Container(
+          decoration: widget.highlight
+              ? BoxDecoration(shape: BoxShape.circle, boxShadow: [
+                  BoxShadow(
+                      color: _accent.withValues(alpha: 0.45),
+                      blurRadius: 16,
+                      spreadRadius: 1),
+                ])
+              : null,
+          child: ClipOval(
+            child: BackdropFilter(
+              filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+              child: Container(
+                width: widget.size,
+                height: widget.size,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: _p
+                      ? Colors.white.withValues(alpha: 0.24)
+                      : Colors.white.withValues(alpha: 0.08),
+                  border: Border.all(
+                    color: widget.highlight
+                        ? _accent.withValues(alpha: 0.95)
+                        : Colors.white.withValues(alpha: 0.20),
+                    width: widget.highlight ? 1.8 : 1,
+                  ),
                 ),
+                child: Text(widget.label,
+                    style: TextStyle(
+                      color: widget.highlight ? Colors.white : Colors.white70,
+                      fontSize: widget.size * 0.40,
+                      fontWeight: FontWeight.w700,
+                      height: 1.0,
+                    )),
               ),
-              child: Text(widget.label,
-                  style: TextStyle(
-                    color: widget.accent ? _accent : Colors.white70,
-                    fontSize: widget.size * 0.45,
-                    fontWeight: FontWeight.w700,
-                  )),
             ),
           ),
         ),
@@ -607,9 +820,11 @@ class _NavStickState extends State<_NavStick> {
 
   void _checkDirection() {
     int newDir = 0;
-    if (_thumb.dx > _deadzone)
+    if (_thumb.dx > _deadzone) {
       newDir = 1;
-    else if (_thumb.dx < -_deadzone) newDir = -1;
+    } else if (_thumb.dx < -_deadzone) {
+      newDir = -1;
+    }
 
     if (newDir != _currentDir) {
       _currentDir = newDir;
@@ -632,9 +847,11 @@ class _NavStickState extends State<_NavStick> {
   }
 
   void _fire() {
-    if (_currentDir == 1)
+    if (_currentDir == 1) {
       widget.onNext();
-    else if (_currentDir == -1) widget.onPrev();
+    } else if (_currentDir == -1) {
+      widget.onPrev();
+    }
   }
 
   void _reset(PointerEvent e) {
@@ -729,12 +946,12 @@ class _SettingsPanelState extends State<_SettingsPanel> {
             alignment: Alignment.center,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
-              color: const Color(0x2200D4FF),
-              border: Border.all(color: const Color(0xFF00D4FF)),
+              color: const Color(0x226FB6FF),
+              border: Border.all(color: const Color(0xFF6FB6FF)),
             ),
             child: Text('$n',
                 style: const TextStyle(
-                    color: Color(0xFF00D4FF),
+                    color: Color(0xFF6FB6FF),
                     fontSize: 11,
                     fontWeight: FontWeight.bold)),
           ),
@@ -787,14 +1004,14 @@ class _SettingsPanelState extends State<_SettingsPanel> {
         Container(
           padding: const EdgeInsets.all(12),
           decoration: BoxDecoration(
-            color: const Color(0x1A00D4FF),
+            color: const Color(0x1A6FB6FF),
             borderRadius: BorderRadius.circular(10),
-            border: Border.all(color: const Color(0x5500D4FF)),
+            border: Border.all(color: const Color(0x556FB6FF)),
           ),
           child:
               Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             const Row(children: [
-              Icon(Icons.download_rounded, color: Color(0xFF00D4FF), size: 18),
+              Icon(Icons.download_rounded, color: Color(0xFF6FB6FF), size: 18),
               SizedBox(width: 8),
               Text('Get the PC server',
                   style: TextStyle(
@@ -815,12 +1032,17 @@ class _SettingsPanelState extends State<_SettingsPanel> {
                 alignment: Alignment.center,
                 padding: const EdgeInsets.symmetric(vertical: 9),
                 decoration: BoxDecoration(
-                  color: const Color(0xFF00D4FF),
-                  borderRadius: BorderRadius.circular(8),
+                  color: const Color(0xFFE9EDF4),
+                  borderRadius: BorderRadius.circular(20),
+                  boxShadow: [
+                    BoxShadow(
+                        color: Colors.white.withValues(alpha: 0.15),
+                        blurRadius: 12),
+                  ],
                 ),
                 child: const Text('Go to Release',
                     style: TextStyle(
-                        color: Color(0xFF06121A),
+                        color: Color(0xFF10141B),
                         fontSize: 12.5,
                         fontWeight: FontWeight.bold)),
               ),
@@ -831,7 +1053,7 @@ class _SettingsPanelState extends State<_SettingsPanel> {
               child: const Padding(
                 padding: EdgeInsets.symmetric(vertical: 2),
                 child: Text('How to install →',
-                    style: TextStyle(color: Color(0xFF00D4FF), fontSize: 11)),
+                    style: TextStyle(color: Color(0xFF6FB6FF), fontSize: 11)),
               ),
             ),
           ]),
@@ -851,7 +1073,7 @@ class _SettingsPanelState extends State<_SettingsPanel> {
             () => setState(() => _view = 'privacy')),
         _row(Icons.forum_outlined, 'Join Community',
             () => _open(_communityUrl),
-            tint: const Color(0xFF00D4FF), last: true),
+            tint: const Color(0xFF6FB6FF), last: true),
       ]);
 
   // ── Controller settings (quick tuning — full editor lives in the gamepad) ──
@@ -863,13 +1085,13 @@ class _SettingsPanelState extends State<_SettingsPanel> {
               style: const TextStyle(color: Colors.white70, fontSize: 11.5)),
           const Spacer(),
           Text(value.toStringAsFixed(1),
-              style: const TextStyle(color: Color(0xFF00D4FF), fontSize: 11)),
+              style: const TextStyle(color: Color(0xFF6FB6FF), fontSize: 11)),
         ]),
         SliderTheme(
           data: SliderTheme.of(context).copyWith(
             trackHeight: 2,
             thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 7),
-            activeTrackColor: const Color(0xFF00D4FF),
+            activeTrackColor: const Color(0xFF6FB6FF),
             inactiveTrackColor: Colors.white12,
             thumbColor: Colors.white,
             overlayShape: SliderComponentShape.noOverlay,
@@ -915,7 +1137,7 @@ class _SettingsPanelState extends State<_SettingsPanel> {
       Wrap(
         spacing: 6,
         children: [
-          for (final q in const ['360p', '480p', '720p', 'screen'])
+          for (final q in const ['360p', '480p', '720p', '1080p', 'screen'])
             GestureDetector(
               onTap: () {
                 setState(() => s.streamQuality = q);
@@ -928,18 +1150,18 @@ class _SettingsPanelState extends State<_SettingsPanel> {
                     const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                 decoration: BoxDecoration(
                   color: s.streamQuality == q
-                      ? const Color(0x3300D4FF)
+                      ? const Color(0x336FB6FF)
                       : Colors.white.withValues(alpha: 0.05),
                   borderRadius: BorderRadius.circular(8),
                   border: Border.all(
                       color: s.streamQuality == q
-                          ? const Color(0xFF00D4FF)
+                          ? const Color(0xFF6FB6FF)
                           : Colors.white12),
                 ),
                 child: Text(q == 'screen' ? '2nd screen' : q,
                     style: TextStyle(
                         color: s.streamQuality == q
-                            ? const Color(0xFF00D4FF)
+                            ? const Color(0xFF6FB6FF)
                             : Colors.white54,
                         fontSize: 10.5)),
               ),
@@ -997,15 +1219,15 @@ class _SettingsPanelState extends State<_SettingsPanel> {
       ]);
 
   Widget _about() {
-    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      const Text('TouchPlay',
+    return const Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Text('TouchPlay',
           style: TextStyle(
               color: Colors.white, fontSize: 18, fontWeight: FontWeight.w700)),
-      const SizedBox(height: 4),
-      const Text('Turn your phone into a gamepad for any PC game.',
+      SizedBox(height: 4),
+      Text('Turn your phone into a gamepad for any PC game.',
           style: TextStyle(color: Colors.white60, fontSize: 11.5, height: 1.4)),
-      const SizedBox(height: 14),
-      const Text('Made for gamers, by gamers.',
+      SizedBox(height: 14),
+      Text('Made for gamers, by gamers.',
           style: TextStyle(color: Colors.white24, fontSize: 10)),
     ]);
   }
@@ -1023,16 +1245,17 @@ class _SettingsPanelState extends State<_SettingsPanel> {
             ),
           Text(
               switch (_view) {
-                'howto' => 'How to use',
-                'about' => 'About',
-                'controls' => 'Controller Settings',
-                'privacy' => 'Privacy Policy',
-                _ => 'Menu',
+                'howto' => 'HOW TO USE',
+                'about' => 'ABOUT',
+                'controls' => 'CONTROLLER SETTINGS',
+                'privacy' => 'PRIVACY POLICY',
+                _ => 'MENU',
               },
               style: const TextStyle(
                   color: Colors.white,
-                  fontSize: 15,
-                  fontWeight: FontWeight.w600)),
+                  fontSize: 12.5,
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: 1.8)),
           const Spacer(),
           GestureDetector(
             onTap: widget.onClose,
@@ -1139,6 +1362,12 @@ class _SearchOverlayState extends State<_SearchOverlay> {
   @override
   Widget build(BuildContext context) {
     final top = MediaQuery.of(context).padding.top;
+    final sz = MediaQuery.of(context).size;
+    final kb = MediaQuery.of(context).viewInsets.bottom;
+    // Compact centered palette: capped width so landscape doesn't stretch it
+    // edge to edge, and the result list shrinks to stay above the keyboard.
+    final panelW = (sz.width - 48).clamp(0.0, 440.0);
+    final listMax = (sz.height - kb - top - 130).clamp(80.0, 280.0);
     return Stack(children: [
       Positioned.fill(
         child: GestureDetector(
@@ -1149,8 +1378,8 @@ class _SearchOverlayState extends State<_SearchOverlay> {
       ),
       Positioned(
         top: top + 16,
-        left: 60,
-        right: 60,
+        left: (sz.width - panelW) / 2,
+        width: panelW,
         child: Material(
           color: Colors.transparent,
           child: ClipRRect(
@@ -1194,7 +1423,7 @@ class _SearchOverlayState extends State<_SearchOverlay> {
                   ),
                   const SizedBox(height: 8),
                   ConstrainedBox(
-                    constraints: const BoxConstraints(maxHeight: 180),
+                    constraints: BoxConstraints(maxHeight: listMax),
                     child: _matches.isEmpty
                         ? const Padding(
                             padding: EdgeInsets.all(14),

@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../services/websocket_service.dart' show SensitivitySettings;
 
 /// The kinds of control a user can drop onto a custom layout.
 /// The `steer*` kinds are the alternate Forza steering styles, now editable just
@@ -24,6 +25,7 @@ class ControlItem {
     this.label = '',
     this.icon = '',
     this.opacity = 1.0,
+    this.aspect = 0,
   });
 
   String id;
@@ -35,15 +37,17 @@ class ControlItem {
   String label;    // optional override text
   String icon;     // optional icon key — see kIconRegistry below ('' = none)
   double opacity;  // 0..1 — Free-Fire-style per-control transparency
+  double aspect;   // height/width override (0 = the kind's default ratio)
 
   ControlItem copy() => ControlItem(
       id: id, kind: kind, x: x, y: y, size: size,
-      action: action, label: label, icon: icon, opacity: opacity);
+      action: action, label: label, icon: icon, opacity: opacity,
+      aspect: aspect);
 
   Map<String, dynamic> toJson() => {
         'id': id, 'kind': kind.name, 'x': x, 'y': y,
         'size': size, 'action': action, 'label': label,
-        'icon': icon, 'opacity': opacity,
+        'icon': icon, 'opacity': opacity, 'aspect': aspect,
       };
 
   factory ControlItem.fromJson(Map<String, dynamic> j) => ControlItem(
@@ -56,6 +60,7 @@ class ControlItem {
         label: (j['label'] ?? '') as String,
         icon: (j['icon'] ?? '') as String,
         opacity: ((j['opacity'] ?? 1.0) as num).toDouble(),
+        aspect: ((j['aspect'] ?? 0) as num).toDouble(),
       );
 }
 
@@ -322,48 +327,111 @@ CustomLayout cloneStandard() => CustomLayout(
     );
 
 /// Editable copy of the **Forza** layout. [steer] picks which steering control
-/// is dropped in — 'wheel' | 'slider' | 'tilt' | 'pads' — so the editor opens
-/// with the steering style you actually use, all movable / resizable.
-CustomLayout cloneForza([String steer = 'wheel']) {
-  // The steering control(s) for the chosen style — placed bottom-left.
-  final steering = <ControlItem>[
-    if (steer == 'slider')
-      _b(ControlKind.steerSlider, 0.24, 0.84, 'steer:slider', 300)
-    else if (steer == 'tilt')
-      _b(ControlKind.steerTilt, 0.17, 0.80, 'steer:tilt', 240)
-    else if (steer == 'pads') ...[
-      _b(ControlKind.steerPad, 0.09, 0.80, 'steerpad:left', 96),
-      _b(ControlKind.steerPad, 0.23, 0.80, 'steerpad:right', 96),
-    ]
-    else
-      _b(ControlKind.wheel, 0.17, 0.66, 'wheel', 230),
-  ];
+/// is dropped in — 'wheel' | 'slider' | 'tilt' | 'pads'.
+///
+/// Built from the SAME formulas the live racing HUD uses
+/// (`_forzaChildren` in controller_screen.dart) at the given screen size and
+/// control-scale settings, so the editor opens showing EXACTLY what you play
+/// with — same sizes, same spots — and stays identical after saving.
+CustomLayout cloneForza(String steer, Size screen, SensitivitySettings s) {
+  final w = screen.width, h = screen.height;
+  final joyR   = s.joyRadius;
+  final pedalW = (w * 0.12).clamp(70.0, 150.0);
+  final small  = (h * 0.13).clamp(46.0, 78.0);
+  final big    = (h * 0.18).clamp(64.0, 110.0);
+  final mini   = small * 0.72;
+
+  final gasW   = pedalW * s.gasSize;
+  final brakeW = pedalW * s.brakeSize;
+  final gasH   = (h * 0.46 * s.gasSize).clamp(150.0, 360.0);
+  final brakeH = (h * 0.36 * s.brakeSize).clamp(120.0, 300.0);
+  final hbSize = (big * s.handbrakeSize).clamp(56.0, 150.0);
+
+  // Captioned buttons reserve ~16px under the circle, which shifts the stored
+  // footprint-center 8px below the circle's center. Apply that nudge so the
+  // visible circles land exactly where the HUD draws them.
+  ControlItem btn(double circleCx, double circleCy, String action, double size,
+          String label, String icon) =>
+      _b(ControlKind.button, circleCx / w, (circleCy + 8) / h, action, size,
+          label, icon);
+
+  // ── Steering — same anchor boxes as the HUD ──
+  final steering = <ControlItem>[];
+  if (steer == 'slider') {
+    final sw = (w * 0.34 * joyR).clamp(220.0, 380.0);
+    steering.add(_b(ControlKind.steerSlider, 0.25, 0.71, 'steer:slider', sw));
+  } else if (steer == 'tilt') {
+    const tw = 240.0;
+    steering.add(_b(ControlKind.steerTilt, (w * 0.05 + tw / 2) / w,
+        (h * 0.90 - tw * 0.42 / 2) / h, 'steer:tilt', tw));
+  } else if (steer == 'pads') {
+    final sp = (h * 0.22 * joyR).clamp(80.0, 150.0);
+    final py = (h * 0.89 - sp / 2) / h;
+    steering
+      ..add(_b(ControlKind.steerPad, (w * 0.05 + sp / 2) / w, py,
+          'steerpad:left', sp))
+      ..add(_b(ControlKind.steerPad, (w * 0.21 + sp / 2) / w, py,
+          'steerpad:right', sp));
+  } else {
+    final d = (h * 0.42 * joyR).clamp(150.0, 320.0);
+    // HUD centers the wheel in the box (0..0.46w, 0.30h..h).
+    steering.add(_b(ControlKind.wheel, 0.23, 0.65, 'wheel', d));
+  }
+
+  // ── Pedals (bottom-right), true HUD proportions via `aspect` ──
+  final gas = _b(
+      ControlKind.pedal,
+      (w - w * 0.035 - gasW / 2) / w,
+      (h * 0.93 - gasH / 2) / h,
+      'pedal:gas', gasW, 'RT', 'gas')
+    ..aspect = gasH / gasW;
+  final brake = _b(
+      ControlKind.pedal,
+      (w - (w * 0.055 + gasW) - brakeW / 2) / w,
+      (h * 0.93 - brakeH / 2) / h,
+      'pedal:brake', brakeW, 'LT', 'brake')
+    ..aspect = brakeH / brakeW;
+
+  // ── Button clusters, computed from the HUD's row math ──
+  final hornCx   = w * 0.96 - small / 2;
+  final rewindCx = hornCx - small - w * 0.015;
+  final camCx    = rewindCx - small - w * 0.015;
+  final clusterCy = h * 0.15 + small / 2;
+
+  final selectCx = w * 0.04 + small / 2;
+  final backCx   = selectCx + small + w * 0.015;
+
+  final miniStep  = mini + w * 0.022;
+  final miniTotal = 4 * mini + 3 * w * 0.022;
+  final miniCx0   = w / 2 - miniTotal / 2 + mini / 2;
+  final miniCy    = h * 0.05 + mini / 2;
 
   const labels = {'wheel': 'Wheel', 'slider': 'Slider', 'tilt': 'Tilt', 'pads': 'Pads'};
   return CustomLayout(
     id: _newId(),
     name: 'My Forza · ${labels[steer] ?? 'Wheel'}',
-    // Mirror the built-in racing HUD exactly — same positions, sizes, labels and
-    // icons — so "Customize" opens with the real layout, not a stripped-down copy.
     items: [
       ...steering,
-      // Pedals (bottom-right): GAS=RT, BRAKE=LT
-      _b(ControlKind.pedal, 0.90, 0.70, 'pedal:gas',   100, 'RT',   'gas'),
-      _b(ControlKind.pedal, 0.77, 0.74, 'pedal:brake',  92, 'LT', 'brake'),
-      // Handbrake (drift) = A, just left of the pedals
-      _b(ControlKind.button, 0.66, 0.78, 'gp:A', 64, 'HBRAKE', 'hbrake'),
+      gas,
+      brake,
+      // Handbrake (drift) = A — just left of the pedals. The HUD anchors the
+      // footprint's BOTTOM at 0.87h, so the circle center sits half a circle
+      // plus the caption above that line.
+      btn(w - (w * 0.06 + gasW + brakeW) - hbSize / 2,
+          h * 0.87 - hbSize / 2 - 16,
+          'gp:A', hbSize, 'HBRAKE', 'hbrake'),
       // Secondary cluster (upper-right): CAM=RB, REWIND=Y, HORN=RS
-      _b(ControlKind.button, 0.78, 0.22, 'gp:RB', 56, 'CAM',    'cam'),
-      _b(ControlKind.button, 0.86, 0.22, 'gp:Y',  56, 'REWIND', 'rewind'),
-      _b(ControlKind.button, 0.93, 0.22, 'gp:RS', 56, 'HORN',   'horn'),
-      // Menu cluster (upper-left): SELECT=A, BACK=B (answer in-game prompts)
-      _b(ControlKind.button, 0.07, 0.22, 'gp:A', 56, 'SELECT', 'select'),
-      _b(ControlKind.button, 0.14, 0.22, 'gp:B', 56, 'BACK',   'close'),
+      btn(camCx,    clusterCy, 'gp:RB', small, 'CAM',    'cam'),
+      btn(rewindCx, clusterCy, 'gp:Y',  small, 'REWIND', 'rewind'),
+      btn(hornCx,   clusterCy, 'gp:RS', small, 'HORN',   'horn'),
+      // Menu cluster (upper-left): SELECT=A, BACK=B
+      btn(selectCx, clusterCy, 'gp:A', small, 'SELECT', 'select'),
+      btn(backCx,   clusterCy, 'gp:B', small, 'BACK',   'close'),
       // Top-center utility (icon-only): MAP, ANNA, PHOTO, PAUSE
-      _b(ControlKind.button, 0.40, 0.10, 'gp:BACK',      46, '', 'map'),
-      _b(ControlKind.button, 0.47, 0.10, 'gp:DPAD_DOWN', 46, '', 'anna'),
-      _b(ControlKind.button, 0.53, 0.10, 'gp:DPAD_UP',   46, '', 'photo'),
-      _b(ControlKind.button, 0.60, 0.10, 'gp:START',     46, '', 'pause'),
+      _b(ControlKind.button, miniCx0 / w,                miniCy / h, 'gp:BACK',      mini, '', 'map'),
+      _b(ControlKind.button, (miniCx0 + miniStep) / w,   miniCy / h, 'gp:DPAD_DOWN', mini, '', 'anna'),
+      _b(ControlKind.button, (miniCx0 + 2 * miniStep) / w, miniCy / h, 'gp:DPAD_UP', mini, '', 'photo'),
+      _b(ControlKind.button, (miniCx0 + 3 * miniStep) / w, miniCy / h, 'gp:START',   mini, '', 'pause'),
     ],
   );
 }

@@ -1,4 +1,4 @@
-﻿import 'dart:async';
+import 'dart:async';
 import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:sensors_plus/sensors_plus.dart';
@@ -7,10 +7,10 @@ import '../services/haptics.dart';
 
 // ── Shared theme tokens (match the monochrome "Claude" controller design) ──────
 // Quiet at rest (so they don't pull the eye off the game), cyan on press.
-const _kAccent  = Color(0xFF00D4FF);
+const _kAccent  = Color(0xFF6FB6FF);
 const _kRest    = Color(0x66FFFFFF); // neutral border at rest
 const _kRestDim = Color(0x33FFFFFF); // even quieter (secondary controls)
-const _kFill    = Color(0x2200D4FF); // cyan glow fill on press
+const _kFill    = Color(0x226FB6FF); // cyan glow fill on press
 
 /// Steering value applies the same sensitivity + dead-zone as the analog sticks,
 /// so the in-app "Steering" sliders behave identically across wheel and pads.

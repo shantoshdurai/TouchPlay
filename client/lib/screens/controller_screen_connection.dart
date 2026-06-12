@@ -46,7 +46,7 @@ class _ToastState extends State<_Toast> {
                 decoration: BoxDecoration(
                   color: const Color(0xCC0B0B12),
                   borderRadius: BorderRadius.circular(24),
-                  border: Border.all(color: const Color(0x3300D4FF)),
+                  border: Border.all(color: const Color(0x336FB6FF)),
                   boxShadow: [BoxShadow(
                     color: Colors.black.withValues(alpha: 0.45), blurRadius: 16, offset: const Offset(0, 4))],
                 ),

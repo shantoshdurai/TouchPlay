@@ -8,3 +8,4 @@ uiautomation
 dxcam
 Pillow
 pyvirtualcam
+pystray

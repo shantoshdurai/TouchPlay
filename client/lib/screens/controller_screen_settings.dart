@@ -83,15 +83,17 @@ class _SettingsPanelState extends State<_SettingsPanel> {
           ),
           child: Material(
             color: Colors.transparent,
+            child: ClipRRect(
+            borderRadius: BorderRadius.circular(16),
+            child: BackdropFilter(
+            filter: ui.ImageFilter.blur(sigmaX: 24, sigmaY: 24),
             child: Container(
               width: 200,
               constraints: BoxConstraints(maxHeight: (sz.height - top - 54).clamp(200.0, sz.height)),
               decoration: BoxDecoration(
-                color: const Color(0xFF0D0D14),
-                borderRadius: BorderRadius.circular(14),
-                border: Border.all(color: const Color(0xFF24243A)),
-                boxShadow: [BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.5), blurRadius: 20, offset: const Offset(0, 8))],
+                color: const Color(0xFF14161F).withValues(alpha: 0.55),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: Colors.white.withValues(alpha: 0.12)),
               ),
               child: Column(mainAxisSize: MainAxisSize.min, children: [
                 _header(),
@@ -110,6 +112,7 @@ class _SettingsPanelState extends State<_SettingsPanel> {
                               ('360p', '360p'),
                               ('480p', '480p'),
                               ('720p', '720p'),
+                              ('1080p', '1080p'),
                               ('screen', '2nd Screen'),
                             ])
                               GestureDetector(
@@ -122,13 +125,13 @@ class _SettingsPanelState extends State<_SettingsPanel> {
                                   duration: const Duration(milliseconds: 150),
                                   padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                                   decoration: BoxDecoration(
-                                    color: _streamQuality == opt.$1 ? const Color(0x2200D4FF) : Colors.transparent,
+                                    color: _streamQuality == opt.$1 ? const Color(0x226FB6FF) : Colors.transparent,
                                     borderRadius: BorderRadius.circular(8),
                                     border: Border.all(
-                                      color: _streamQuality == opt.$1 ? const Color(0xFF00D4FF) : const Color(0xFF3A3A55)),
+                                      color: _streamQuality == opt.$1 ? const Color(0xFF6FB6FF) : const Color(0xFF3A3A55)),
                                   ),
                                   child: Text(opt.$2, style: TextStyle(
-                                    color: _streamQuality == opt.$1 ? const Color(0xFF00D4FF) : Colors.white54,
+                                    color: _streamQuality == opt.$1 ? const Color(0xFF6FB6FF) : Colors.white54,
                                     fontSize: 12, fontWeight: _streamQuality == opt.$1 ? FontWeight.bold : FontWeight.normal)),
                                 ),
                               ),
@@ -168,6 +171,8 @@ class _SettingsPanelState extends State<_SettingsPanel> {
                   ),
                 ),
               ]),
+            ),
+            ),
             ),
           ),
         ),
@@ -294,12 +299,12 @@ class _SettingsPanelState extends State<_SettingsPanel> {
         duration: const Duration(milliseconds: 150),
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
         decoration: BoxDecoration(
-          color: active ? const Color(0x2200D4FF) : Colors.transparent,
+          color: active ? const Color(0x226FB6FF) : Colors.transparent,
           borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: active ? const Color(0xFF00D4FF) : const Color(0xFF3A3A55)),
+          border: Border.all(color: active ? const Color(0xFF6FB6FF) : const Color(0xFF3A3A55)),
         ),
         child: Text(label, style: TextStyle(
-          color: active ? const Color(0xFF00D4FF) : Colors.white54,
+          color: active ? const Color(0xFF6FB6FF) : Colors.white54,
           fontSize: 13, fontWeight: active ? FontWeight.bold : FontWeight.normal)),
       ),
     );
@@ -337,8 +342,9 @@ class _SettingsPanelState extends State<_SettingsPanel> {
   Widget _header() => Padding(
     padding: const EdgeInsets.fromLTRB(16, 16, 12, 10),
     child: Row(children: [
-      const Text('Settings', style: TextStyle(
-        color: Colors.white, fontSize: 15, fontWeight: FontWeight.w600)),
+      const Text('SETTINGS', style: TextStyle(
+        color: Colors.white, fontSize: 12, fontWeight: FontWeight.w600,
+        letterSpacing: 1.8)),
       const Spacer(),
       GestureDetector(
         onTap: () {
@@ -349,7 +355,7 @@ class _SettingsPanelState extends State<_SettingsPanel> {
           padding: const EdgeInsets.all(6),
           decoration: const BoxDecoration(
             shape: BoxShape.circle, color: Color(0xFF1A1A24)),
-          child: const Icon(Icons.edit_outlined, color: Color(0xFF00D4FF), size: 16),
+          child: const Icon(Icons.edit_outlined, color: Color(0xFF6FB6FF), size: 16),
         ),
       ),
       const SizedBox(width: 8),
@@ -367,8 +373,8 @@ class _SettingsPanelState extends State<_SettingsPanel> {
 
   Widget _section(String title) => Padding(
     padding: const EdgeInsets.only(top: 8, bottom: 2),
-    child: Text(title.toUpperCase(), style: const TextStyle(
-      color: Color(0xFF00D4FF), fontSize: 9,
+    child: Text(title.toUpperCase(), style: TextStyle(
+      color: Colors.white.withValues(alpha: 0.35), fontSize: 9,
       fontWeight: FontWeight.bold, letterSpacing: 1.5)),
   );
 
@@ -397,7 +403,7 @@ class _SettingsPanelState extends State<_SettingsPanel> {
           const Spacer(),
           Text(fmt != null ? fmt(value) : value.toStringAsFixed(1),
             style: const TextStyle(
-              color: Color(0xFF00D4FF), fontSize: 11, fontWeight: FontWeight.w600)),
+              color: Colors.white70, fontSize: 11, fontWeight: FontWeight.w600)),
         ]),
         SizedBox(
           height: 24,
@@ -406,10 +412,10 @@ class _SettingsPanelState extends State<_SettingsPanel> {
               trackHeight: 2,
               thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6, elevation: 0),
               overlayShape: const RoundSliderOverlayShape(overlayRadius: 14),
-              activeTrackColor: const Color(0xFF00D4FF),
-              inactiveTrackColor: const Color(0xFF20202C),
+              activeTrackColor: Colors.white70,
+              inactiveTrackColor: Colors.white.withValues(alpha: 0.10),
               thumbColor: Colors.white,
-              overlayColor: const Color(0x1100D4FF),
+              overlayColor: const Color(0x11FFFFFF),
             ),
             child: Slider(value: value, min: min, max: max, onChanged: onChanged),
           ),
@@ -430,8 +436,8 @@ class _SettingsPanelState extends State<_SettingsPanel> {
             child: Switch(
               value: value,
               onChanged: onChanged,
-              activeColor: const Color(0xFF00D4FF),
-              activeTrackColor: const Color(0x3300D4FF),
+              activeColor: Colors.white,
+              activeTrackColor: Colors.white24,
               inactiveThumbColor: Colors.white54,
               inactiveTrackColor: const Color(0xFF20202C),
             ),

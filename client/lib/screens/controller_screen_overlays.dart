@@ -30,7 +30,7 @@ class _GamePicker extends StatefulWidget {
 class _GamePickerState extends State<_GamePicker> {
   int _tab = 0; // 0 = built-in, 1 = custom
 
-  static const _accent = Color(0xFF00D4FF);
+  static const _accent = Color(0xFF6FB6FF);
 
   bool get _onCustomTab => _tab == 1;
 
@@ -158,7 +158,7 @@ class _GamePickerState extends State<_GamePicker> {
         duration: const Duration(milliseconds: 150),
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
         decoration: BoxDecoration(
-          color: active ? const Color(0x2200D4FF) : Colors.transparent,
+          color: active ? const Color(0x226FB6FF) : Colors.transparent,
           borderRadius: BorderRadius.circular(8),
           border: Border.all(
             color: active ? _accent : const Color(0xFF2C2C40)),
@@ -177,7 +177,7 @@ class _GamePickerState extends State<_GamePicker> {
     return InkWell(
       onTap: disabled ? null : () => widget.onPick(p.id),
       child: Container(
-        color: selected ? const Color(0x0F00D4FF) : Colors.transparent,
+        color: selected ? const Color(0x0F6FB6FF) : Colors.transparent,
         padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
         child: Row(children: [
           Icon(p.icon,
@@ -218,7 +218,7 @@ class _GamePickerState extends State<_GamePicker> {
     return InkWell(
       onTap: () => widget.onPick('custom:${l.id}'),
       child: Container(
-        color: selected ? const Color(0x0F00D4FF) : Colors.transparent,
+        color: selected ? const Color(0x0F6FB6FF) : Colors.transparent,
         padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
         child: Row(children: [
           Icon(Icons.tune, size: 18, color: selected ? _accent : Colors.white54),
@@ -274,7 +274,7 @@ class _TemplatePicker extends StatelessWidget {
         border: Border.all(color: const Color(0xFF24243A)),
       ),
       child: Row(children: [
-        Icon(icon, color: const Color(0xFF00D4FF), size: 26),
+        Icon(icon, color: const Color(0xFF6FB6FF), size: 26),
         const SizedBox(width: 14),
         Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Text(title, style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w600)),
@@ -300,7 +300,7 @@ class _TemplatePicker extends StatelessWidget {
       ),
       child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
         const Text('START FROM', style: TextStyle(
-          color: Color(0xFF00D4FF), fontSize: 11, fontWeight: FontWeight.bold, letterSpacing: 2)),
+          color: Color(0xFF6FB6FF), fontSize: 11, fontWeight: FontWeight.bold, letterSpacing: 2)),
         const SizedBox(height: 14),
         _opt(Icons.crop_square, 'Blank canvas', 'Start empty', 'blank'),
         _opt(Icons.sports_esports, 'Gamepad starter', 'ABXY, sticks, bumpers, D-pad', 'gamepad'),
@@ -394,11 +394,11 @@ class _GamesDropdown extends StatelessWidget {
 
   Widget _row(IconData icon, String label, bool active, VoidCallback onTap,
       {bool accentIcon = false, VoidCallback? onEdit, VoidCallback? onDelete}) {
-    const accent = Color(0xFF00D4FF);
+    const accent = Color(0xFF6FB6FF);
     return InkWell(
       onTap: onTap,
       child: Container(
-        color: active ? const Color(0x1400D4FF) : Colors.transparent,
+        color: active ? const Color(0x146FB6FF) : Colors.transparent,
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
         child: Row(children: [
           Icon(icon, size: 16, color: active || accentIcon ? accent : Colors.white70),
@@ -463,7 +463,7 @@ class _SteerChooser extends StatelessWidget {
             ),
             child: Column(mainAxisSize: MainAxisSize.min, children: [
               Text(title, style: const TextStyle(
-                color: Color(0xFF00D4FF), fontSize: 12,
+                color: Color(0xFF6FB6FF), fontSize: 12,
                 fontWeight: FontWeight.bold, letterSpacing: 2.5)),
               const SizedBox(height: 8),
               Text(
@@ -512,7 +512,7 @@ class _SteerOption extends StatelessWidget {
         border: Border.all(color: const Color(0xFF24243A)),
       ),
       child: Column(children: [
-        Icon(icon, color: const Color(0xFF00D4FF), size: 42),
+        Icon(icon, color: const Color(0xFF6FB6FF), size: 42),
         const SizedBox(height: 12),
         Text(title, style: const TextStyle(
           color: Colors.white, fontSize: 15,
@@ -666,14 +666,18 @@ class _IpDialogState extends State<_IpDialog> {
     return Dialog(
       backgroundColor: Colors.transparent,
       insetPadding: const EdgeInsets.all(20),
-      child: Container(
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(18),
+        child: BackdropFilter(
+        filter: ui.ImageFilter.blur(sigmaX: 24, sigmaY: 24),
+        child: Container(
         width: 360,
         constraints: BoxConstraints(maxHeight: sz.height * 0.92),
         padding: const EdgeInsets.all(22),
         decoration: BoxDecoration(
-          color: const Color(0xFF0D0D1A),
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: const Color(0xFF252535)),
+          color: const Color(0xFF14161F).withValues(alpha: 0.55),
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: Colors.white.withValues(alpha: 0.12)),
         ),
         child: SingleChildScrollView(
           child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -700,7 +704,7 @@ class _IpDialogState extends State<_IpDialog> {
               ),
               child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                 _diagRow('Found PC', found ?? (connecting ? 'searching…' : 'not found yet'),
-                    valueColor: found != null ? const Color(0xFF00D4FF) : Colors.white38),
+                    valueColor: found != null ? const Color(0xFF6FB6FF) : Colors.white38),
                 _diagRow('Trying', candidates.isEmpty ? '—' : candidates.join('   ·   ')),
                 if (svc.serverVersion != null) _diagRow('Server', 'v${svc.serverVersion}', 
                   valueColor: svc.versionMismatch ? const Color(0xFFE53935) : null),
@@ -747,37 +751,44 @@ class _IpDialogState extends State<_IpDialog> {
                   borderSide: const BorderSide(color: Color(0xFF252535))),
                 focusedBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(10),
-                  borderSide: const BorderSide(color: Color(0xFF00D4FF))),
+                  borderSide: const BorderSide(color: Color(0xFF6FB6FF))),
               ),
             ),
             const SizedBox(height: 14),
 
             Row(children: [
-              Expanded(child: OutlinedButton.icon(
-                onPressed: () => WebSocketService.instance.reconnect(),
-                icon: const Icon(Icons.refresh, size: 16),
-                label: const Text('Rescan'),
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: const Color(0xFF00D4FF),
-                  side: const BorderSide(color: Color(0xFF00D4FF)),
+              // Quiet glass secondary, white pill primary — same language as
+              // the home menu's Launch pill.
+              Expanded(child: GestureDetector(
+                onTap: () => WebSocketService.instance.reconnect(),
+                child: Container(
                   padding: const EdgeInsets.symmetric(vertical: 12),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.06),
+                    borderRadius: BorderRadius.circular(24),
+                    border: Border.all(
+                        color: Colors.white.withValues(alpha: 0.18)),
+                  ),
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(Icons.refresh, size: 16, color: Colors.white70),
+                      SizedBox(width: 6),
+                      Text('Rescan',
+                          style: TextStyle(
+                              color: Colors.white70,
+                              fontWeight: FontWeight.w600)),
+                    ],
+                  ),
                 ),
               )),
               const SizedBox(width: 10),
-              Expanded(child: ElevatedButton(
-                onPressed: _connect,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF00D4FF),
-                  foregroundColor: Colors.black,
-                  padding: const EdgeInsets.symmetric(vertical: 13),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                ),
-                child: const Text('Connect',
-                  style: TextStyle(fontWeight: FontWeight.bold, letterSpacing: 0.5)),
-              )),
+              Expanded(child: PillButton(label: 'Connect', onTap: _connect)),
             ]),
           ]),
+        ),
+        ),
         ),
       ),
     );
@@ -826,11 +837,11 @@ class _MenuPanelState extends State<_MenuPanel> {
         alignment: Alignment.center,
         decoration: BoxDecoration(
           shape: BoxShape.circle,
-          color: const Color(0x2200D4FF),
-          border: Border.all(color: const Color(0xFF00D4FF)),
+          color: const Color(0x226FB6FF),
+          border: Border.all(color: const Color(0xFF6FB6FF)),
         ),
         child: Text('$n', style: const TextStyle(
-          color: Color(0xFF00D4FF), fontSize: 11, fontWeight: FontWeight.bold)),
+          color: Color(0xFF6FB6FF), fontSize: 11, fontWeight: FontWeight.bold)),
       ),
       const SizedBox(width: 12),
       Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -868,13 +879,13 @@ class _MenuPanelState extends State<_MenuPanel> {
     Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: const Color(0x1A00D4FF),
+        color: const Color(0x1A6FB6FF),
         borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: const Color(0x5500D4FF)),
+        border: Border.all(color: const Color(0x556FB6FF)),
       ),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         const Row(children: [
-          Icon(Icons.download_rounded, color: Color(0xFF00D4FF), size: 18),
+          Icon(Icons.download_rounded, color: Color(0xFF6FB6FF), size: 18),
           SizedBox(width: 8),
           Text('Get the PC server', style: TextStyle(
             color: Colors.white, fontSize: 13, fontWeight: FontWeight.w600)),
@@ -890,11 +901,16 @@ class _MenuPanelState extends State<_MenuPanel> {
             alignment: Alignment.center,
             padding: const EdgeInsets.symmetric(vertical: 9),
             decoration: BoxDecoration(
-              color: const Color(0xFF00D4FF),
-              borderRadius: BorderRadius.circular(8),
+              color: const Color(0xFFE9EDF4),
+              borderRadius: BorderRadius.circular(20),
+              boxShadow: [
+                BoxShadow(
+                    color: Colors.white.withValues(alpha: 0.15),
+                    blurRadius: 12),
+              ],
             ),
             child: const Text('Go to Release', style: TextStyle(
-              color: Color(0xFF06121A), fontSize: 12.5, fontWeight: FontWeight.bold)),
+              color: Color(0xFF10141B), fontSize: 12.5, fontWeight: FontWeight.bold)),
           ),
         ),
         const SizedBox(height: 6),
@@ -903,7 +919,7 @@ class _MenuPanelState extends State<_MenuPanel> {
           child: const Padding(
             padding: EdgeInsets.symmetric(vertical: 2),
             child: Text('How to install →', style: TextStyle(
-              color: Color(0xFF00D4FF), fontSize: 11)),
+              color: Color(0xFF6FB6FF), fontSize: 11)),
           ),
         ),
       ]),
@@ -917,7 +933,7 @@ class _MenuPanelState extends State<_MenuPanel> {
     _row(Icons.privacy_tip_outlined, 'Privacy Policy',
         () => setState(() => _view = 'privacy')),
     _row(Icons.forum_outlined, 'Join Community', () => _open(_communityUrl),
-        tint: const Color(0xFF00D4FF), last: true),
+        tint: const Color(0xFF6FB6FF), last: true),
   ]);
 
   Widget _privacy() => const Column(
@@ -957,7 +973,7 @@ class _MenuPanelState extends State<_MenuPanel> {
         border: Border.all(color: const Color(0xFF222232)),
       ),
       child: const Row(children: [
-        Icon(Icons.lightbulb_outline, color: Color(0xFF00D4FF), size: 16),
+        Icon(Icons.lightbulb_outline, color: Color(0xFF6FB6FF), size: 16),
         SizedBox(width: 8),
         Expanded(child: Text('No PC server = nothing to connect to. Step 1 is required.',
           style: TextStyle(color: Colors.white54, fontSize: 10.5, height: 1.3))),
@@ -993,7 +1009,12 @@ class _MenuPanelState extends State<_MenuPanel> {
             padding: EdgeInsets.only(right: 8),
             child: Icon(Icons.arrow_back, color: Colors.white54, size: 18)),
         ),
-      Text(_view == 'home' ? 'Menu' : _view == 'howto' ? 'How to use' : 'About',
+      Text(switch (_view) {
+        'howto' => 'How to use',
+        'privacy' => 'Privacy Policy',
+        'home' => 'Menu',
+        _ => 'About',
+      },
         style: const TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.w600)),
       const Spacer(),
       GestureDetector(
@@ -1042,7 +1063,12 @@ class _MenuPanelState extends State<_MenuPanel> {
                 Flexible(
                   child: SingleChildScrollView(
                     padding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
-                    child: _view == 'home' ? _home() : _view == 'howto' ? _howto() : _about(),
+                    child: switch (_view) {
+                      'howto' => _howto(),
+                      'privacy' => _privacy(),
+                      'home' => _home(),
+                      _ => _about(),
+                    },
                   ),
                 ),
               ]),

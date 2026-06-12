@@ -1,12 +1,15 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../services/file_transfer_service.dart';
 import '../services/haptics.dart';
 import '../services/websocket_service.dart' as ws;
+import '../widgets/ambience.dart';
 
-const _accent = Color(0xFF00D4FF);
+const _accent = Color(0xFF6FB6FF);
 
 /// Phone ⇄ PC file drop. The PC side serves Downloads\TouchPlay; anything the
 /// phone sends lands there, and anything in there can be pulled to the phone.
@@ -21,16 +24,41 @@ class _FileTransferScreenState extends State<FileTransferScreen> {
   List<PcFile>? _files;
   String? _error;
   bool _loading = true;
+  late final StreamSubscription<ws.ConnectionState> _connSub;
+  ws.ConnectionState _conn = ws.WebSocketService.instance.state;
 
   // name → progress 0..1 for active transfers
   final _downloading = <String, double>{};
+  // Files already saved to this phone (this session) / sent from this phone —
+  // so the list reads like a story instead of a bare download icon.
+  final _saved = <String>{};
+  final _sentFromPhone = <String>{};
   double? _uploadProgress;
   String? _uploadName;
 
   @override
   void initState() {
     super.initState();
+    // File browsing is nicer one-handed: let this screen rotate to portrait
+    // (the rest of the app stays landscape-locked).
+    SystemChrome.setPreferredOrientations(DeviceOrientation.values);
+    // Auto-load the list the moment the PC link comes up — no dead "blocks"
+    // while disconnected, no manual retry needed.
+    _connSub = ws.WebSocketService.instance.stateStream.listen((s) {
+      if (!mounted) return;
+      setState(() => _conn = s);
+      if (s == ws.ConnectionState.connected) _refresh();
+    });
     _refresh();
+  }
+
+  @override
+  void dispose() {
+    _connSub.cancel();
+    // Orientation is owned by main.dart's push(): the home menu rotates
+    // freely, landscape-only screens lock it on entry.
+    SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+    super.dispose();
   }
 
   Future<void> _refresh() async {
@@ -72,6 +100,7 @@ class _FileTransferScreenState extends State<FileTransferScreen> {
         },
       );
       if (!mounted) return;
+      _saved.add(f.name);
       _toast('Saved to $where');
     } catch (e) {
       if (mounted) _toast('Download failed — $e');
@@ -98,6 +127,7 @@ class _FileTransferScreenState extends State<FileTransferScreen> {
         },
       );
       if (!mounted) return;
+      _sentFromPhone.add(savedAs);
       _toast('Sent — on the PC in Downloads\\TouchPlay as "$savedAs"');
       _refresh();
     } catch (e) {
@@ -157,11 +187,58 @@ class _FileTransferScreenState extends State<FileTransferScreen> {
     }
   }
 
+  /// "2 min ago" style label from a unix-seconds mtime.
+  static String _ago(int mtime) {
+    if (mtime <= 0) return '';
+    final diff = DateTime.now()
+        .difference(DateTime.fromMillisecondsSinceEpoch(mtime * 1000));
+    if (diff.inMinutes < 1) return 'just now';
+    if (diff.inHours < 1) return '${diff.inMinutes} min ago';
+    if (diff.inDays < 1) return '${diff.inHours} h ago';
+    if (diff.inDays < 7) return '${diff.inDays} d ago';
+    final d = DateTime.fromMillisecondsSinceEpoch(mtime * 1000);
+    return '${d.day}/${d.month}/${d.year}';
+  }
+
+  /// Real preview for photos/videos (served by the PC), icon for the rest.
+  Widget _thumbFor(PcFile f) {
+    final url = FileTransferService.instance.thumbUrl(f);
+    if (url == null) {
+      return SizedBox(
+        width: 42,
+        height: 42,
+        child: Icon(_iconFor(f.name), color: Colors.white54, size: 22),
+      );
+    }
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(8),
+      child: SizedBox(
+        width: 42,
+        height: 42,
+        child: Stack(fit: StackFit.expand, children: [
+          ColoredBox(color: Colors.white.withValues(alpha: 0.05)),
+          Image.network(
+            url,
+            fit: BoxFit.cover,
+            gaplessPlayback: true,
+            errorBuilder: (_, __, ___) =>
+                Icon(_iconFor(f.name), color: Colors.white54, size: 22),
+          ),
+          if (f.isVideo)
+            const Center(
+                child:
+                    Icon(Icons.play_circle, color: Colors.white70, size: 18)),
+        ]),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFF080810),
-      body: SafeArea(
+      backgroundColor: Colors.black,
+      body: AmbientBackground(
+        child: SafeArea(
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -170,14 +247,15 @@ class _FileTransferScreenState extends State<FileTransferScreen> {
             Expanded(child: _body()),
           ],
         ),
+        ),
       ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: _uploadProgress == null ? _pickAndUpload : null,
-        backgroundColor: _accent,
-        foregroundColor: const Color(0xFF06121A),
-        icon: const Icon(Icons.upload_file),
-        label: const Text('Send file to PC',
-            style: TextStyle(fontWeight: FontWeight.w700)),
+      floatingActionButton: PillButton(
+        label: 'Send file to PC',
+        icon: Icons.upload_file,
+        busy: _uploadProgress != null,
+        onTap: () {
+          if (_uploadProgress == null) _pickAndUpload();
+        },
       ),
     );
   }
@@ -222,9 +300,9 @@ class _FileTransferScreenState extends State<FileTransferScreen> {
         child: Container(
           padding: const EdgeInsets.all(12),
           decoration: BoxDecoration(
-            color: const Color(0x1A00D4FF),
+            color: const Color(0x1A6FB6FF),
             borderRadius: BorderRadius.circular(10),
-            border: Border.all(color: const Color(0x5500D4FF)),
+            border: Border.all(color: const Color(0x556FB6FF)),
           ),
           child: Row(
             children: [
@@ -260,35 +338,64 @@ class _FileTransferScreenState extends State<FileTransferScreen> {
           child: CircularProgressIndicator(color: _accent, strokeWidth: 2));
     }
     if (_error != null) {
+      final connected = _conn == ws.ConnectionState.connected;
       return Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(Icons.wifi_off, color: Colors.white24, size: 40),
-            const SizedBox(height: 12),
-            Text(_error!,
+        child: Container(
+          margin: const EdgeInsets.all(24),
+          padding: const EdgeInsets.all(20),
+          constraints: const BoxConstraints(maxWidth: 380),
+          decoration: BoxDecoration(
+            color: Colors.white.withValues(alpha: 0.03),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(connected ? Icons.cloud_off : Icons.wifi_off,
+                  color: const Color(0xFFFF6B6B), size: 36),
+              const SizedBox(height: 12),
+              Text(connected ? 'PC didn\'t answer' : 'Not connected to a PC',
+                  style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w700)),
+              const SizedBox(height: 6),
+              Text(
+                connected
+                    ? 'The control link is up but the file service didn\'t '
+                        'respond. Restart the TouchPlay server on your PC.'
+                    : 'Open the TouchPlay server on your PC. The phone '
+                        'connects by itself and this list will load '
+                        'automatically.',
                 textAlign: TextAlign.center,
-                style: const TextStyle(color: Colors.white54, fontSize: 12.5)),
-            const SizedBox(height: 14),
-            OutlinedButton(
-              onPressed: _refresh,
-              style: OutlinedButton.styleFrom(
-                  foregroundColor: _accent,
-                  side: const BorderSide(color: _accent)),
-              child: const Text('Retry'),
-            ),
-          ],
+                style: const TextStyle(
+                    color: Colors.white54, fontSize: 12, height: 1.5),
+              ),
+              const SizedBox(height: 14),
+              PillButton(label: 'Retry now', width: 160, onTap: _refresh),
+            ],
+          ),
         ),
       );
     }
     final files = _files ?? const <PcFile>[];
     if (files.isEmpty) {
-      return const Center(
-        child: Text(
-          'No files on the PC yet.\nDrop files into Downloads\\TouchPlay on '
-          'your PC,\nor send one from this phone.',
-          textAlign: TextAlign.center,
-          style: TextStyle(color: Colors.white38, fontSize: 12.5, height: 1.5),
+      return Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.folder_open,
+                color: Colors.white.withValues(alpha: 0.12), size: 44),
+            const SizedBox(height: 12),
+            const Text(
+              'No files on the PC yet.\nDrop files into Downloads\\TouchPlay '
+              'on your PC,\nor send one from this phone.',
+              textAlign: TextAlign.center,
+              style:
+                  TextStyle(color: Colors.white38, fontSize: 12.5, height: 1.5),
+            ),
+          ],
         ),
       );
     }
@@ -304,30 +411,65 @@ class _FileTransferScreenState extends State<FileTransferScreen> {
         itemBuilder: (_, i) {
           final f = files[i];
           final progress = _downloading[f.name];
+          final sentByMe = _sentFromPhone.contains(f.name);
+          final saved = _saved.contains(f.name);
+
+          final Widget action;
+          if (progress != null) {
+            action = SizedBox(
+              width: 22,
+              height: 22,
+              child: CircularProgressIndicator(
+                  value: progress > 0 ? progress : null,
+                  strokeWidth: 2,
+                  color: _accent),
+            );
+          } else if (saved) {
+            action = const Row(mainAxisSize: MainAxisSize.min, children: [
+              Icon(Icons.check_circle, color: Color(0xFF3DDC84), size: 16),
+              SizedBox(width: 5),
+              Text('On phone',
+                  style: TextStyle(color: Color(0xFF3DDC84), fontSize: 10.5)),
+            ]);
+          } else {
+            // Explicit verb instead of a bare icon: this COPIES the PC file
+            // onto the phone (into Downloads/TouchPlay).
+            action = GestureDetector(
+              onTap: () => _download(f),
+              child: Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(9),
+                  border: Border.all(color: _accent.withValues(alpha: 0.7)),
+                ),
+                child: const Row(mainAxisSize: MainAxisSize.min, children: [
+                  Icon(Icons.download_rounded, color: _accent, size: 15),
+                  SizedBox(width: 5),
+                  Text('Save to phone',
+                      style: TextStyle(color: _accent, fontSize: 10.5)),
+                ]),
+              ),
+            );
+          }
+
           return ListTile(
             dense: true,
             contentPadding: const EdgeInsets.symmetric(horizontal: 4),
-            leading: Icon(_iconFor(f.name), color: Colors.white54, size: 22),
+            leading: _thumbFor(f),
             title: Text(f.name,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: const TextStyle(color: Colors.white, fontSize: 13)),
-            subtitle: Text(f.sizeLabel,
-                style: const TextStyle(color: Colors.white38, fontSize: 11)),
-            trailing: progress != null
-                ? SizedBox(
-                    width: 22,
-                    height: 22,
-                    child: CircularProgressIndicator(
-                        value: progress > 0 ? progress : null,
-                        strokeWidth: 2,
-                        color: _accent),
-                  )
-                : IconButton(
-                    icon: const Icon(Icons.download_rounded,
-                        color: _accent, size: 22),
-                    onPressed: () => _download(f),
-                  ),
+            subtitle: Text(
+                '${f.sizeLabel} · ${_ago(f.mtime)}'
+                '${sentByMe ? ' · sent from this phone' : ''}',
+                style: TextStyle(
+                    color: sentByMe
+                        ? _accent.withValues(alpha: 0.65)
+                        : Colors.white38,
+                    fontSize: 11)),
+            trailing: action,
           );
         },
       ),

@@ -82,9 +82,12 @@ class WebSocketService with WidgetsBindingObserver {
   // Diagnostics (surfaced in the "Can't connect?" dialog)
   String? get discoveredIp => _discoveredIp;
   List<String> get candidateIps => _candidates();
+  /// The server version this app ships with (keep in sync with server VERSION).
+  static const expectedServerVersion = '1.3.0';
   String? _serverVersion;
   String? get serverVersion => _serverVersion;
-  bool get versionMismatch => _serverVersion != null && _serverVersion != '1.0.0';
+  bool get versionMismatch =>
+      _serverVersion != null && _serverVersion != expectedServerVersion;
   String? _deviceId;
 
   // Local co-op: which player slot the server assigned this phone (1..maxPlayers),

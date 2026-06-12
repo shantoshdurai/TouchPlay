@@ -1,9 +1,9 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../games/custom_layout.dart';
 import '../widgets/custom_controls.dart';
 
-const _accent = Color(0xFF00D4FF);
+const _accent = Color(0xFF6FB6FF);
 const _panel  = Color(0xFF0D0D14);
 const _border = Color(0xFF20202C);
 
@@ -21,12 +21,17 @@ class _LayoutEditorScreenState extends State<LayoutEditorScreen> {
   late CustomLayout _layout;
   late TextEditingController _name;
   String? _selId;
+  bool _dragging = false;
+
+  // Active snap guides while dragging (logical px; null = not snapped).
+  double? _guideX, _guideY;
 
   @override
   void initState() {
     super.initState();
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
-    _layout = widget.layout;
+    // Work on a copy: Cancel must leave the original untouched.
+    _layout = widget.layout.copy();
     _name = TextEditingController(text: _layout.name);
   }
 
@@ -53,6 +58,36 @@ class _LayoutEditorScreenState extends State<LayoutEditorScreen> {
         _layout.items.removeWhere((e) => e.id == item.id);
         _selId = null;
       });
+
+  /// Drag with alignment snapping: the item magnetises to the screen's center
+  /// lines and to other controls' axes (within 7px), showing a hairline guide
+  /// — makes tidy rows/columns effortless.
+  void _dragItem(ControlItem item, Offset delta, double w, double h) {
+    var nx = (item.x + delta.dx / w).clamp(0.04, 0.96);
+    var ny = (item.y + delta.dy / h).clamp(0.06, 0.94);
+    const snapPx = 7.0;
+    double? gx, gy;
+    final xTargets = <double>[
+      0.5 * w,
+      for (final o in _layout.items) if (o.id != item.id) o.x * w,
+    ];
+    final yTargets = <double>[
+      0.5 * h,
+      for (final o in _layout.items) if (o.id != item.id) o.y * h,
+    ];
+    for (final t in xTargets) {
+      if ((nx * w - t).abs() <= snapPx) { nx = t / w; gx = t; break; }
+    }
+    for (final t in yTargets) {
+      if ((ny * h - t).abs() <= snapPx) { ny = t / h; gy = t; break; }
+    }
+    setState(() {
+      item.x = nx;
+      item.y = ny;
+      _guideX = gx;
+      _guideY = gy;
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -81,8 +116,20 @@ class _LayoutEditorScreenState extends State<LayoutEditorScreen> {
             textAlign: TextAlign.center,
             style: TextStyle(color: Colors.white24, fontSize: 14, height: 1.5))),
 
+        // Alignment guides while dragging
+        if (_guideX != null)
+          Positioned(left: _guideX! - 0.5, top: 0, bottom: 0,
+            child: IgnorePointer(child: Container(
+                width: 1, color: _accent.withValues(alpha: 0.55)))),
+        if (_guideY != null)
+          Positioned(top: _guideY! - 0.5, left: 0, right: 0,
+            child: IgnorePointer(child: Container(
+                height: 1, color: _accent.withValues(alpha: 0.55)))),
+
         _topBar(),
-        if (sel != null) _inspector(sel),
+        // Hidden while dragging so the card never blocks the very control
+        // you're placing (it used to trap controls dropped on the right side).
+        if (sel != null && !_dragging) _inspector(sel),
       ]),
     );
   }
@@ -98,24 +145,47 @@ class _LayoutEditorScreenState extends State<LayoutEditorScreen> {
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
         onTap: () => setState(() => _selId = item.id),
-        onPanStart: (_) => setState(() => _selId = item.id),
-        onPanUpdate: (d) => setState(() {
-          item.x = (item.x + d.delta.dx / w).clamp(0.04, 0.96);
-          item.y = (item.y + d.delta.dy / h).clamp(0.06, 0.94);
+        onPanStart: (_) => setState(() {
+          _selId = item.id;
+          _dragging = true;
+        }),
+        onPanUpdate: (d) => _dragItem(item, d.delta, w, h),
+        onPanEnd: (_) => setState(() {
+          _guideX = null;
+          _guideY = null;
+          _dragging = false;
+        }),
+        onPanCancel: () => setState(() {
+          _guideX = null;
+          _guideY = null;
+          _dragging = false;
         }),
         child: Stack(clipBehavior: Clip.none, children: [
-          // Soft cyan glow on the SELECTED control only — clean, no clutter.
-          if (selected)
-            Positioned(left: -7, top: -7, right: -7, bottom: -7,
+          // Quiet design-tool selection: a thin outline + four corner ticks.
+          // No glow, no neon — the control itself stays the focus.
+          if (selected) ...[
+            Positioned(left: -5, top: -5, right: -5, bottom: -5,
               child: IgnorePointer(child: Container(
                 decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(22),
-                  color: _accent.withValues(alpha: 0.06),
-                  border: Border.all(color: _accent, width: 2),
-                  boxShadow: [BoxShadow(
-                    color: _accent.withValues(alpha: 0.35), blurRadius: 18, spreadRadius: 1)],
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(
+                      color: Colors.white.withValues(alpha: 0.85), width: 1),
                 ),
               ))),
+            for (final a in const [
+              Alignment.topLeft, Alignment.topRight,
+              Alignment.bottomLeft, Alignment.bottomRight,
+            ])
+              Positioned(
+                left:   a.x < 0 ? -8 : null,  right:  a.x > 0 ? -8 : null,
+                top:    a.y < 0 ? -8 : null,  bottom: a.y > 0 ? -8 : null,
+                child: IgnorePointer(child: Container(
+                  width: 7, height: 7,
+                  decoration: const BoxDecoration(
+                      color: _accent, shape: BoxShape.circle),
+                )),
+              ),
+          ],
           // The real control, full opacity for clarity while editing.
           IgnorePointer(child: buildCustomControl(item, applyOpacity: false)),
         ]),
@@ -209,12 +279,23 @@ class _LayoutEditorScreenState extends State<LayoutEditorScreen> {
             child: Container(
               height: 38,
               padding: const EdgeInsets.symmetric(horizontal: 16),
+              alignment: Alignment.center,
               decoration: BoxDecoration(
-                color: _accent, borderRadius: BorderRadius.circular(10)),
+                color: const Color(0xFFE9EDF4),
+                borderRadius: BorderRadius.circular(19),
+                boxShadow: [
+                  BoxShadow(
+                      color: Colors.white.withValues(alpha: 0.18),
+                      blurRadius: 12),
+                ],
+              ),
               child: const Row(mainAxisSize: MainAxisSize.min, children: [
-                Icon(Icons.check, color: Colors.black, size: 18),
+                Icon(Icons.check, color: Color(0xFF10141B), size: 18),
                 SizedBox(width: 4),
-                Text('Save', style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
+                Text('Save',
+                    style: TextStyle(
+                        color: Color(0xFF10141B),
+                        fontWeight: FontWeight.bold)),
               ]),
             ),
           ),
@@ -233,113 +314,155 @@ class _LayoutEditorScreenState extends State<LayoutEditorScreen> {
     ),
   );
 
-  // ── Inspector for the selected control ───────────────────────────────────────
+  // ── Inspector — compact side card so it never covers the controls you're
+  // placing (the old full-width bottom sheet hid everything near the bottom).
   Widget _inspector(ControlItem item) {
     final isButton = item.kind == ControlKind.button;
     final isSided  = item.kind == ControlKind.stick ||
                      item.kind == ControlKind.trigger ||
                      item.kind == ControlKind.steerPad;
     final isPedal  = item.kind == ControlKind.pedal;
-    return Positioned(
-      left: 0, right: 0, bottom: 0,
-      child: Container(
-        padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
-        decoration: const BoxDecoration(
-          color: _panel,
-          border: Border(top: BorderSide(color: _border)),
-          borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-        ),
-        child: SafeArea(top: false, child: Column(mainAxisSize: MainAxisSize.min, children: [
-          Row(children: [
-            Icon(kindIcon(item.kind), color: _accent, size: 18),
-            const SizedBox(width: 8),
-            Text(kindName(item.kind), style: const TextStyle(
-              color: Colors.white, fontSize: 15, fontWeight: FontWeight.w600)),
-            const Spacer(),
-            GestureDetector(
-              onTap: () => _delete(item),
-              child: const Row(children: [
-                Icon(Icons.delete_outline, color: Color(0xFFE53935), size: 18),
-                SizedBox(width: 4),
-                Text('Delete', style: TextStyle(color: Color(0xFFE53935), fontSize: 13)),
-              ]),
+
+    Widget sectionLabel(String t) => Padding(
+      padding: const EdgeInsets.only(top: 10, bottom: 4),
+      child: Text(t.toUpperCase(), style: const TextStyle(
+        color: Colors.white30, fontSize: 9,
+        fontWeight: FontWeight.w600, letterSpacing: 1.4)),
+    );
+
+    Widget slider(double value, double min, double max, String readout,
+            ValueChanged<double> onChanged) =>
+        Row(children: [
+          Expanded(child: SliderTheme(
+            data: SliderThemeData(
+              trackHeight: 2,
+              activeTrackColor: Colors.white70,
+              inactiveTrackColor: _border,
+              thumbColor: Colors.white,
+              overlayShape: SliderComponentShape.noOverlay,
+              thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 7),
             ),
-          ]),
-          const SizedBox(height: 6),
-          if (isButton)
-            Row(children: [
-              const Text('Binding', style: TextStyle(color: Colors.white70, fontSize: 13)),
-              const Spacer(),
+            child: Slider(value: value, min: min, max: max, onChanged: onChanged),
+          )),
+          SizedBox(width: 38, child: Text(readout, textAlign: TextAlign.right,
+            style: const TextStyle(color: Colors.white60, fontSize: 11))),
+        ]);
+
+    // Sit on the opposite half from the selected control so the card never
+    // covers it — controls dragged to the right side stay grabbable.
+    final onLeft = item.x > 0.55;
+    return Positioned(
+      left: onLeft ? 10 : null,
+      right: onLeft ? null : 10,
+      top: 58, bottom: 12, width: 232,
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+        decoration: BoxDecoration(
+          color: _panel.withValues(alpha: 0.96),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: _border),
+        ),
+        child: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Row(children: [
+                Icon(kindIcon(item.kind), color: Colors.white54, size: 16),
+                const SizedBox(width: 8),
+                Expanded(child: Text(kindName(item.kind),
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(color: Colors.white, fontSize: 14,
+                        fontWeight: FontWeight.w600))),
+                GestureDetector(
+                  onTap: () => setState(() => _selId = null),
+                  child: const Padding(
+                    padding: EdgeInsets.all(2),
+                    child: Icon(Icons.close, color: Colors.white38, size: 16)),
+                ),
+              ]),
+              if (isButton) ...[
+                sectionLabel('Binding'),
+                GestureDetector(
+                  onTap: () => _pickBinding(item),
+                  child: Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 12, vertical: 9),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF15151F),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: _border)),
+                    child: Row(children: [
+                      Expanded(child: Text(actionLabel(item.action),
+                          style: const TextStyle(color: Colors.white,
+                              fontSize: 13, fontWeight: FontWeight.w600))),
+                      const Icon(Icons.edit, color: Colors.white38, size: 13),
+                    ]),
+                  ),
+                ),
+              ],
+              if (isSided) ...[
+                sectionLabel('Side'),
+                _sideToggle(item),
+              ],
+              if (isPedal) ...[
+                sectionLabel('Pedal'),
+                _pedalToggle(item),
+              ],
+              sectionLabel('Size · ${item.size.round()}'),
+              slider(item.size.clamp(40, 320), 40, 320,
+                  '${item.size.round()}',
+                  (v) => setState(() => item.size = v)),
+              sectionLabel('Opacity · ${(item.opacity * 100).round()}%'),
+              slider(item.opacity.clamp(0.2, 1.0), 0.2, 1.0,
+                  '${(item.opacity * 100).round()}%',
+                  (v) => setState(() => item.opacity = v)),
+              const SizedBox(height: 14),
               GestureDetector(
-                onTap: () => _pickBinding(item),
+                onTap: () => _delete(item),
                 child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+                  width: double.infinity,
+                  alignment: Alignment.center,
+                  padding: const EdgeInsets.symmetric(vertical: 9),
                   decoration: BoxDecoration(
-                    color: const Color(0x2200D4FF),
                     borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: _accent)),
-                  child: Row(mainAxisSize: MainAxisSize.min, children: [
-                    Text(actionLabel(item.action), style: const TextStyle(
-                      color: _accent, fontSize: 13, fontWeight: FontWeight.bold)),
-                    const SizedBox(width: 6),
-                    const Icon(Icons.edit, color: _accent, size: 13),
-                  ]),
+                    border: Border.all(
+                        color: const Color(0x66E53935))),
+                  child: const Text('Remove control', style: TextStyle(
+                      color: Color(0xFFE57373), fontSize: 12)),
                 ),
               ),
-            ]),
-          if (isSided)
-            Row(children: [
-              const Text('Side', style: TextStyle(color: Colors.white70, fontSize: 13)),
-              const Spacer(),
-              _sideToggle(item),
-            ]),
-          if (isPedal)
-            Row(children: [
-              const Text('Pedal', style: TextStyle(color: Colors.white70, fontSize: 13)),
-              const Spacer(),
-              _pedalToggle(item),
-            ]),
-          Row(children: [
-            const Text('Size', style: TextStyle(color: Colors.white70, fontSize: 13)),
-            Expanded(child: SliderTheme(
-              data: SliderThemeData(
-                trackHeight: 3,
-                activeTrackColor: _accent,
-                inactiveTrackColor: _border,
-                thumbColor: Colors.white,
-                overlayColor: const Color(0x1500D4FF),
-                thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 8),
-              ),
-              child: Slider(
-                value: item.size.clamp(40, 320),
-                min: 40, max: 320,
-                onChanged: (v) => setState(() => item.size = v),
-              ),
-            )),
-            Text('${item.size.round()}', style: const TextStyle(color: _accent, fontSize: 12)),
-          ]),
-          Row(children: [
-            const Text('Opacity', style: TextStyle(color: Colors.white70, fontSize: 13)),
-            Expanded(child: SliderTheme(
-              data: SliderThemeData(
-                trackHeight: 3,
-                activeTrackColor: _accent,
-                inactiveTrackColor: _border,
-                thumbColor: Colors.white,
-                overlayColor: const Color(0x1500D4FF),
-                thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 8),
-              ),
-              child: Slider(
-                value: item.opacity.clamp(0.2, 1.0),
-                min: 0.2, max: 1.0,
-                onChanged: (v) => setState(() => item.opacity = v),
-              ),
-            )),
-            Text('${(item.opacity * 100).round()}%', style: const TextStyle(color: _accent, fontSize: 12)),
-          ]),
-        ])),
+            ],
+          ),
+        ),
       ),
     );
+  }
+
+  // Two-option segment row — stretches to the inspector card's width.
+  Widget _segments(String aLabel, String bLabel, bool aActive,
+      void Function(bool pickedA) onPick) {
+    Widget seg(String label, bool isA, bool active) => Expanded(
+      child: GestureDetector(
+        onTap: () => onPick(isA),
+        child: Container(
+          alignment: Alignment.center,
+          padding: const EdgeInsets.symmetric(vertical: 7),
+          decoration: BoxDecoration(
+            color: active ? const Color(0x1A6FB6FF) : Colors.transparent,
+            borderRadius: BorderRadius.horizontal(
+              left: isA ? const Radius.circular(7) : Radius.zero,
+              right: !isA ? const Radius.circular(7) : Radius.zero),
+            border: Border.all(color: active ? _accent : _border)),
+          child: Text(label, style: TextStyle(
+            color: active ? _accent : Colors.white38,
+            fontSize: 11,
+            fontWeight: active ? FontWeight.w600 : FontWeight.normal)),
+        ),
+      ),
+    );
+    return Row(children: [seg(aLabel, true, aActive), seg(bLabel, false, !aActive)]);
   }
 
   Widget _sideToggle(ControlItem item) {
@@ -347,46 +470,14 @@ class _LayoutEditorScreenState extends State<LayoutEditorScreen> {
                  : item.kind == ControlKind.steerPad ? 'steerpad'
                  : 'trig';
     final left = item.action == '$prefix:left';
-    Widget seg(String label, bool isLeft, bool active) => GestureDetector(
-      onTap: () => setState(() => item.action = '$prefix:${isLeft ? 'left' : 'right'}'),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-        decoration: BoxDecoration(
-          color: active ? const Color(0x2200D4FF) : Colors.transparent,
-          borderRadius: BorderRadius.horizontal(
-            left: isLeft ? const Radius.circular(7) : Radius.zero,
-            right: !isLeft ? const Radius.circular(7) : Radius.zero),
-          border: Border.all(color: active ? _accent : const Color(0xFF3A3A55))),
-        child: Text(label, style: TextStyle(
-          color: active ? _accent : Colors.white38,
-          fontSize: 12, fontWeight: active ? FontWeight.bold : FontWeight.normal)),
-      ),
-    );
-    return Row(mainAxisSize: MainAxisSize.min, children: [
-      seg('LEFT', true, left), seg('RIGHT', false, !left),
-    ]);
+    return _segments('LEFT', 'RIGHT', left, (pickedLeft) =>
+        setState(() => item.action = '$prefix:${pickedLeft ? 'left' : 'right'}'));
   }
 
   Widget _pedalToggle(ControlItem item) {
     final gas = item.action == 'pedal:gas';
-    Widget seg(String label, bool isGas, bool active) => GestureDetector(
-      onTap: () => setState(() => item.action = isGas ? 'pedal:gas' : 'pedal:brake'),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-        decoration: BoxDecoration(
-          color: active ? const Color(0x2200D4FF) : Colors.transparent,
-          borderRadius: BorderRadius.horizontal(
-            left: isGas ? const Radius.circular(7) : Radius.zero,
-            right: !isGas ? const Radius.circular(7) : Radius.zero),
-          border: Border.all(color: active ? _accent : const Color(0xFF3A3A55))),
-        child: Text(label, style: TextStyle(
-          color: active ? _accent : Colors.white38,
-          fontSize: 12, fontWeight: active ? FontWeight.bold : FontWeight.normal)),
-      ),
-    );
-    return Row(mainAxisSize: MainAxisSize.min, children: [
-      seg('GAS', true, gas), seg('BRAKE', false, !gas),
-    ]);
+    return _segments('GAS', 'BRAKE', gas, (pickedGas) =>
+        setState(() => item.action = pickedGas ? 'pedal:gas' : 'pedal:brake'));
   }
 
   // ── Add sheet ────────────────────────────────────────────────────────────────
@@ -540,7 +631,7 @@ class _LayoutEditorScreenState extends State<LayoutEditorScreen> {
 class _GridPaint extends CustomPainter {
   @override
   void paint(Canvas canvas, Size s) {
-    final p = Paint()..color = Colors.white.withValues(alpha: 0.04)..strokeWidth = 1;
+    final p = Paint()..color = Colors.white.withValues(alpha: 0.025)..strokeWidth = 1;
     const step = 40.0;
     for (double x = 0; x < s.width; x += step) {
       canvas.drawLine(Offset(x, 0), Offset(x, s.height), p);

@@ -21,7 +21,7 @@ echo     ^|   ^|  ^|  _  ^|  ^|  ^|  __^|     ^|    __/^|  ^|  _  ^|  ^|  ^|
 echo     ^|___^|  ^|_____^|_____^|____^|__^|__^|___^|   ^|__^|___._^|___  ^|
 echo                                                    ^|_____^|
 echo.
-echo    by Geek Moggers                             Setup v1.2
+echo    by Geek Moggers                             Setup v1.3
 echo.
 
 ::----------------------------------------------------------
@@ -86,13 +86,26 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command "try { $rules = @(@('Touc
 echo.
 
 ::----------------------------------------------------------
-:: Desktop shortcut
+:: Start Menu shortcut (Windows search entry — one clean result)
+:: Desktop shortcut is intentionally NOT created here to avoid
+:: duplicate "TouchPlay Server" app entries in Windows search.
 ::----------------------------------------------------------
-echo   Creating Desktop shortcut...
-set "_BAT=%~dp0TouchPlay-Server.bat"
+echo   Creating Start Menu entry...
+:: Remove any existing Desktop shortcut from older setup runs
+if exist "%USERPROFILE%\Desktop\TouchPlay Server.lnk" (
+    del "%USERPROFILE%\Desktop\TouchPlay Server.lnk" >nul 2>&1
+    echo   [--] Removed old Desktop shortcut (was causing duplicate in search)
+)
+:: Prefer the packaged exe when it's there; fall back to the bat for source installs.
+set "_TARGET=%~dp0TouchPlay-Server.bat"
 set "_DIR=%~dp0"
-powershell -NoProfile -ExecutionPolicy Bypass -Command "$s=New-Object -ComObject WScript.Shell; $l=$s.CreateShortcut([Environment]::GetFolderPath('Desktop')+'\TouchPlay Server.lnk'); $l.TargetPath='%_BAT%'; $l.WorkingDirectory='%_DIR%'; $l.Description='TouchPlay - Start Controller Server'; $l.Save()"
-echo   [OK] Shortcut on Desktop
+if exist "%~dp0dist\TouchPlay-Server.exe" (
+    set "_TARGET=%~dp0dist\TouchPlay-Server.exe"
+    set "_DIR=%~dp0dist"
+)
+set "_ICO=%~dp0app_icon.ico"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$s=New-Object -ComObject WScript.Shell; $dir=(Join-Path ([Environment]::GetFolderPath('ApplicationData')) 'Microsoft\Windows\Start Menu\Programs'); $l=$s.CreateShortcut((Join-Path $dir 'TouchPlay Server.lnk')); $l.TargetPath='%_TARGET%'; $l.WorkingDirectory='%_DIR%'; $l.Description='TouchPlay - phone gamepad, mirror, files and more'; if ('%_TARGET%' -like '*.exe') { $l.IconLocation='%_TARGET%,0' } elseif (Test-Path '%_ICO%') { $l.IconLocation='%_ICO%' }; $l.Save()"
+echo   [OK] Start Menu entry created (Win key ^ "TouchPlay" to launch)
 echo.
 
 ::----------------------------------------------------------
@@ -100,7 +113,8 @@ echo.
 ::----------------------------------------------------------
 echo   +----------------------------------------------------+
 echo   ^|  Setup complete!                                   ^|
-echo   ^|  Use "TouchPlay Server" shortcut on your Desktop. ^|
+echo   ^|  Press the Windows key and type "TouchPlay"        ^|
+echo   ^|  to find and launch the server.                    ^|
 echo   +----------------------------------------------------+
 echo.
 set /p "GO=   Launch server now? (Y/N): "

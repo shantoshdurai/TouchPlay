@@ -20,6 +20,15 @@ class PcFile {
         mtime: (j['mtime'] as num?)?.toInt() ?? 0,
       );
 
+  String get _ext =>
+      name.contains('.') ? name.split('.').last.toLowerCase() : '';
+
+  bool get isImage =>
+      const {'jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp'}.contains(_ext);
+
+  bool get isVideo =>
+      const {'mp4', 'mkv', 'avi', 'webm', 'mov'}.contains(_ext);
+
   String get sizeLabel {
     if (size >= 1024 * 1024 * 1024) {
       return '${(size / (1024 * 1024 * 1024)).toStringAsFixed(1)} GB';
@@ -49,6 +58,13 @@ class FileTransferService {
           queryParameters: query);
 
   bool get hasServer => _ip != null;
+
+  /// Thumbnail URL for an image/video on the PC (served by the file server),
+  /// or null when there's no server or the type has no thumbnail.
+  String? thumbUrl(PcFile f, {int size = 128}) {
+    if (_ip == null || (!f.isImage && !f.isVideo)) return null;
+    return _uri('/thumb', {'name': f.name, 's': '$size'}).toString();
+  }
 
   /// Opens the system file picker (native, no extra permissions) and returns
   /// the chosen file copied into the app cache, or null if cancelled.

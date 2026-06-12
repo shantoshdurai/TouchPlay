@@ -8,10 +8,10 @@ import 'action_button.dart';
 import 'forza_controls.dart';
 import 'spiderman_controls.dart';
 
-const _kAccent  = Color(0xFF00D4FF);
+const _kAccent  = Color(0xFF6FB6FF);
 const _kRest    = Color(0x66FFFFFF);
 const _kRestDim = Color(0x33FFFFFF);
-const _kFill    = Color(0x2200D4FF);
+const _kFill    = Color(0x226FB6FF);
 
 /// A button shows a caption under the circle only when it has BOTH an icon and a
 /// label (matches the built-in HUD). Pure-text buttons keep the label inside.
@@ -24,7 +24,8 @@ bool _buttonHasCaption(ControlItem i) =>
 Size controlFootprint(ControlItem i) {
   switch (i.kind) {
     case ControlKind.mousepad:    return Size(i.size, i.size * 0.66);
-    case ControlKind.pedal:       return Size(i.size, i.size * 1.4);
+    case ControlKind.pedal:
+      return Size(i.size, i.size * (i.aspect > 0 ? i.aspect : 1.4));
     case ControlKind.steerSlider: return Size(i.size, i.size * 0.34);
     case ControlKind.steerTilt:   return Size(i.size, i.size * 0.42);
     case ControlKind.swing:       return Size(i.size, i.size);
@@ -77,7 +78,8 @@ Widget _rawControl(ControlItem item) {
         gas: gas,
         label: gas ? 'GAS' : 'BRAKE',
         icon: gas ? Icons.local_gas_station : Icons.front_hand,
-        width: item.size, height: item.size * 1.4,
+        width: item.size,
+        height: item.size * (item.aspect > 0 ? item.aspect : 1.4),
       );
   }
 }

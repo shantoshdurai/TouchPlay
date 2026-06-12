@@ -6,6 +6,7 @@ import android.app.NotificationManager
 import android.app.Service
 import android.content.Intent
 import android.content.pm.ServiceInfo
+import android.content.res.Configuration
 import android.graphics.Bitmap
 import android.graphics.PixelFormat
 import android.hardware.display.DisplayManager
@@ -24,9 +25,13 @@ import java.io.ByteArrayOutputStream
  * Foreground service that mirrors the phone screen ("Projector").
  *
  * Android 10+ requires MediaProjection to live inside a foreground service of
- * type mediaProjection. Frames are captured at half resolution ~12 fps,
+ * type mediaProjection. Frames are captured at half resolution ~22 fps,
  * JPEG-compressed, and handed to MainActivity via [onFrame] which forwards
  * them over the WebSocket to the PC.
+ *
+ * Rotation-aware: when the phone rotates, the virtual display is resized to
+ * the new orientation so the PC window always matches the phone's real shape
+ * (no baked-in black bars from a stale landscape canvas).
  */
 class ScreenCastService : Service() {
 
@@ -41,8 +46,56 @@ class ScreenCastService : Service() {
     private var vDisplay: VirtualDisplay? = null
     private var reader: ImageReader? = null
     private var thread: HandlerThread? = null
+    private var handler: Handler? = null
+    private var lastFrame = 0L
+    private var curW = 0
+    private var curH = 0
 
     override fun onBind(intent: Intent?): IBinder? = null
+
+    /** Half-resolution capture size for the CURRENT orientation, even-aligned. */
+    private fun captureSize(): Pair<Int, Int> {
+        val metrics = resources.displayMetrics
+        var w = metrics.widthPixels / 2
+        var h = metrics.heightPixels / 2
+        w -= w % 2
+        h -= h % 2
+        return Pair(w, h)
+    }
+
+    /** Build an ImageReader that JPEG-encodes frames at its OWN dimensions —
+     *  safe to swap in after a rotation without touching the listener. */
+    private fun buildReader(w: Int, h: Int): ImageReader {
+        val r = ImageReader.newInstance(w, h, PixelFormat.RGBA_8888, 2)
+        r.setOnImageAvailableListener({ rd ->
+            val img = rd.acquireLatestImage() ?: return@setOnImageAvailableListener
+            try {
+                val now = SystemClock.elapsedRealtime()
+                if (now - lastFrame < 45) return@setOnImageAvailableListener  // ~22 fps cap
+                lastFrame = now
+
+                val iw = img.width
+                val ih = img.height
+                val plane = img.planes[0]
+                val rowPadding = plane.rowStride - plane.pixelStride * iw
+                val bmpW = iw + rowPadding / plane.pixelStride
+                val bmp = Bitmap.createBitmap(bmpW, ih, Bitmap.Config.ARGB_8888)
+                bmp.copyPixelsFromBuffer(plane.buffer)
+                val cropped = if (rowPadding == 0) bmp
+                              else Bitmap.createBitmap(bmp, 0, 0, iw, ih)
+
+                val out = ByteArrayOutputStream(64 * 1024)
+                cropped.compress(Bitmap.CompressFormat.JPEG, 70, out)
+                if (cropped !== bmp) bmp.recycle()
+                cropped.recycle()
+                onFrame?.invoke(out.toByteArray())
+            } catch (_: Exception) {
+            } finally {
+                img.close()
+            }
+        }, handler)
+        return r
+    }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent == null || intent.action == ACTION_STOP) {
@@ -68,7 +121,7 @@ class ScreenCastService : Service() {
             projection = mpm.getMediaProjection(code, data)
 
             thread = HandlerThread("touchplay-cast").also { it.start() }
-            val handler = Handler(thread!!.looper)
+            handler = Handler(thread!!.looper)
 
             // Android 14+ requires a registered callback before createVirtualDisplay.
             projection?.registerCallback(object : MediaProjection.Callback() {
@@ -77,42 +130,13 @@ class ScreenCastService : Service() {
                 }
             }, handler)
 
-            val metrics = resources.displayMetrics
-            var w = metrics.widthPixels / 2
-            var h = metrics.heightPixels / 2
-            w -= w % 2
-            h -= h % 2
-
-            reader = ImageReader.newInstance(w, h, PixelFormat.RGBA_8888, 2)
-            var last = 0L
-            reader!!.setOnImageAvailableListener({ r ->
-                val img = r.acquireLatestImage() ?: return@setOnImageAvailableListener
-                try {
-                    val now = SystemClock.elapsedRealtime()
-                    if (now - last < 80) return@setOnImageAvailableListener  // ~12 fps cap
-                    last = now
-
-                    val plane = img.planes[0]
-                    val rowPadding = plane.rowStride - plane.pixelStride * w
-                    val bmpW = w + rowPadding / plane.pixelStride
-                    val bmp = Bitmap.createBitmap(bmpW, h, Bitmap.Config.ARGB_8888)
-                    bmp.copyPixelsFromBuffer(plane.buffer)
-                    val cropped = if (rowPadding == 0) bmp
-                                  else Bitmap.createBitmap(bmp, 0, 0, w, h)
-
-                    val out = ByteArrayOutputStream(64 * 1024)
-                    cropped.compress(Bitmap.CompressFormat.JPEG, 60, out)
-                    if (cropped !== bmp) bmp.recycle()
-                    cropped.recycle()
-                    onFrame?.invoke(out.toByteArray())
-                } catch (_: Exception) {
-                } finally {
-                    img.close()
-                }
-            }, handler)
+            val (w, h) = captureSize()
+            curW = w
+            curH = h
+            reader = buildReader(w, h)
 
             vDisplay = projection?.createVirtualDisplay(
-                "TouchPlayCast", w, h, metrics.densityDpi,
+                "TouchPlayCast", w, h, resources.displayMetrics.densityDpi,
                 DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
                 reader!!.surface, null, handler
             )
@@ -121,6 +145,26 @@ class ScreenCastService : Service() {
             stopSelf()
         }
         return START_NOT_STICKY
+    }
+
+    /** Phone rotated → resize the virtual display so frames match the new
+     *  orientation instead of letterboxing into the old canvas. */
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        if (!running) return
+        try {
+            val (w, h) = captureSize()
+            if (w == curW && h == curH) return
+            curW = w
+            curH = h
+            val newReader = buildReader(w, h)
+            vDisplay?.resize(w, h, resources.displayMetrics.densityDpi)
+            vDisplay?.surface = newReader.surface
+            val old = reader
+            reader = newReader
+            try { old?.close() } catch (_: Exception) {}
+        } catch (_: Exception) {
+        }
     }
 
     private fun startInForeground() {
@@ -159,6 +203,8 @@ class ScreenCastService : Service() {
         try { projection?.stop() } catch (_: Exception) {}
         try { reader?.close() } catch (_: Exception) {}
         thread?.quitSafely()
+        thread = null
+        handler = null
         super.onDestroy()
     }
 }

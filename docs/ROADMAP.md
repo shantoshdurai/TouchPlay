@@ -190,8 +190,11 @@ and verified on a real game before moving on.
 - [ ] Export / import / share a layout (clipboard or file).
 
 ### R4 — "Replace your mouse & keyboard"  (desktop input)
-- [ ] Precision trackpad (tap, drag-lock, two-finger scroll, R/M click, accel).
-- [ ] On-screen keyboard + bindable key buttons (SendInput).
+- [x] Precision trackpad — v1.3.0 dedicated Mouse & Keys screen (portrait +
+      landscape): tap, double-tap-hold drag, two-finger scroll/zoom/right-tap,
+      scroll strip, hold-able L/M/R buttons.
+- [x] On-screen keyboard — v1.3.0: system-keyboard piping (backspace/Enter
+      included) + scalable floating mini-keyboard. Bindable key buttons still open.
 
 ### R5 — "A layout for every game"  (content + streaming)
 - [ ] More game profiles (GTA V, NFS, RDR2, flight, …).

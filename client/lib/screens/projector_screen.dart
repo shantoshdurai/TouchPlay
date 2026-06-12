@@ -2,8 +2,9 @@ import 'package:flutter/material.dart';
 
 import '../services/cast_service.dart';
 import '../services/haptics.dart';
+import '../widgets/ambience.dart';
 
-const _accent = Color(0xFF00D4FF);
+const _accent = Color(0xFF6FB6FF);
 
 /// Phone screen → PC window ("Projector"). Uses Android MediaProjection via a
 /// foreground service, so it keeps casting while you switch apps on the phone.
@@ -19,6 +20,14 @@ class _ProjectorScreenState extends State<ProjectorScreen> {
   String? _error;
 
   bool get _live => CastService.instance.activeMode.value == 'projector';
+
+  @override
+  void dispose() {
+    // Pressing Back while casting should stop it — the PC window stays open
+    // otherwise because the WebSocket connection never closes.
+    if (_live) CastService.instance.stop();
+    super.dispose();
+  }
 
   Future<void> _toggle() async {
     if (_busy) return;
@@ -39,8 +48,9 @@ class _ProjectorScreenState extends State<ProjectorScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFF080810),
-      body: SafeArea(
+      backgroundColor: Colors.black,
+      body: AmbientBackground(
+        child: SafeArea(
         child: Padding(
           padding: const EdgeInsets.all(16),
           child: Column(
@@ -124,6 +134,13 @@ class _ProjectorScreenState extends State<ProjectorScreen> {
                                   color: Color(0xFFFF6B6B),
                                   fontSize: 11,
                                   height: 1.4)),
+                          // Connection errors get a gentle path to the server
+                          // download — open it, or copy the link for the PC.
+                          if (_error!.toLowerCase().contains('connect') ||
+                              _error!.toLowerCase().contains('server')) ...[
+                            const SizedBox(height: 10),
+                            const GetServerHint(),
+                          ],
                         ],
                       ],
                     );
@@ -132,42 +149,19 @@ class _ProjectorScreenState extends State<ProjectorScreen> {
               ),
               const Spacer(),
               Center(
-                child: GestureDetector(
+                child: PillButton(
+                  width: 220,
+                  label: _live ? 'Stop Casting' : 'Start Casting',
+                  icon: _live ? Icons.stop_rounded : Icons.cast_rounded,
+                  busy: _busy,
+                  danger: _live,
                   onTap: _toggle,
-                  child: Container(
-                    width: 220,
-                    padding: const EdgeInsets.symmetric(vertical: 13),
-                    alignment: Alignment.center,
-                    decoration: BoxDecoration(
-                      color: _live
-                          ? Colors.white.withValues(alpha: 0.08)
-                          : _accent,
-                      borderRadius: BorderRadius.circular(12),
-                      border: _live
-                          ? Border.all(color: const Color(0xFFFF6B6B))
-                          : null,
-                    ),
-                    child: _busy
-                        ? const SizedBox(
-                            width: 18,
-                            height: 18,
-                            child: CircularProgressIndicator(
-                                strokeWidth: 2, color: Colors.white))
-                        : Text(
-                            _live ? 'Stop Casting' : 'Start Casting',
-                            style: TextStyle(
-                                color: _live
-                                    ? const Color(0xFFFF6B6B)
-                                    : const Color(0xFF06121A),
-                                fontSize: 14,
-                                fontWeight: FontWeight.w800),
-                          ),
-                  ),
                 ),
               ),
               const SizedBox(height: 8),
             ],
           ),
+        ),
         ),
       ),
     );

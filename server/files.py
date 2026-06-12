@@ -9,12 +9,15 @@ Endpoints (both ends are ours, so the protocol stays dead simple):
   GET  /info               → {"app": "touchplay", "files_port": 8768}
   GET  /files              → [{"name", "size", "mtime"}, …] newest first
   GET  /download?name=X    → raw file bytes (attachment)
+  GET  /thumb?name=X&s=128 → JPEG thumbnail for images/videos (404 otherwise)
   POST /upload?name=X      → raw body saved into the drop folder
 """
 
+import io
 import json
 import threading
 import time
+from collections import OrderedDict
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlparse, parse_qs, quote
@@ -34,6 +37,49 @@ def _safe_name(raw: str) -> str:
     """Strip any path component — uploads can only create files IN the drop dir."""
     name = Path(raw.replace("\\", "/")).name.strip()
     return name or f"file-{int(time.time())}"
+
+
+_IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp"}
+_VIDEO_EXTS = {".mp4", ".mkv", ".avi", ".webm", ".mov"}
+
+# (name, mtime, size) → JPEG bytes; tiny LRU so list scrolling stays instant.
+_thumb_cache: "OrderedDict[tuple, bytes]" = OrderedDict()
+_thumb_lock = threading.Lock()
+_THUMB_CACHE_MAX = 256
+
+
+def _make_thumb(path: Path, edge: int) -> bytes | None:
+    """Downscaled JPEG for an image/video file, or None if not thumbnail-able."""
+    ext = path.suffix.lower()
+    try:
+        if ext in _IMAGE_EXTS:
+            from PIL import Image, ImageOps
+            with Image.open(path) as im:
+                im = ImageOps.exif_transpose(im)
+                im.thumbnail((edge, edge))
+                if im.mode not in ("RGB", "L"):
+                    im = im.convert("RGB")
+                buf = io.BytesIO()
+                im.save(buf, "JPEG", quality=72)
+                return buf.getvalue()
+        if ext in _VIDEO_EXTS:
+            import cv2
+            cap = cv2.VideoCapture(str(path))
+            ok, frame = cap.read()
+            cap.release()
+            if not ok or frame is None:
+                return None
+            h, w = frame.shape[:2]
+            scale = edge / max(h, w)
+            if scale < 1:
+                frame = cv2.resize(frame, (max(2, int(w * scale)),
+                                           max(2, int(h * scale))))
+            ok, enc = cv2.imencode(".jpg", frame,
+                                   [int(cv2.IMWRITE_JPEG_QUALITY), 72])
+            return enc.tobytes() if ok else None
+    except Exception:
+        return None
+    return None
 
 
 def _unique_path(name: str) -> Path:
@@ -84,6 +130,43 @@ class _Handler(BaseHTTPRequestHandler):
                     })
             entries.sort(key=lambda e: e["mtime"], reverse=True)
             self._json(entries)
+            return
+
+        if url.path == "/thumb":
+            qs = parse_qs(url.query)
+            name = _safe_name(qs.get("name", [""])[0])
+            try:
+                edge = max(32, min(512, int(qs.get("s", ["128"])[0])))
+            except ValueError:
+                edge = 128
+            path = DROP_DIR / name
+            if not path.is_file():
+                self._json({"error": "not found"}, 404)
+                return
+            st = path.stat()
+            key = (name, int(st.st_mtime), st.st_size, edge)
+            with _thumb_lock:
+                data = _thumb_cache.get(key)
+                if data is not None:
+                    _thumb_cache.move_to_end(key)
+            if data is None:
+                data = _make_thumb(path, edge)
+                if data is None:
+                    self._json({"error": "no thumbnail"}, 404)
+                    return
+                with _thumb_lock:
+                    _thumb_cache[key] = data
+                    while len(_thumb_cache) > _THUMB_CACHE_MAX:
+                        _thumb_cache.popitem(last=False)
+            self.send_response(200)
+            self.send_header("Content-Type", "image/jpeg")
+            self.send_header("Content-Length", str(len(data)))
+            self.send_header("Cache-Control", "max-age=3600")
+            self.end_headers()
+            try:
+                self.wfile.write(data)
+            except (ConnectionError, BrokenPipeError):
+                pass
             return
 
         if url.path == "/download":

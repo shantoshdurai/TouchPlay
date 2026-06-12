@@ -1,5 +1,6 @@
 import asyncio
 import json
+import os
 import platform
 import socket
 import subprocess
@@ -11,8 +12,10 @@ from gamepad import (
 )
 from ui import ServerUI
 from stream import stream_handler, capture_loop, STREAM_PORT, set_quality, set_high_quality
+import stream as stream_mod
 import files as file_transfer
 import cast as casting
+import usb_link
 
 def get_best_ip() -> str:
     """Return USB tethering IP (192.168.42.x) if available, else best LAN IP."""
@@ -39,7 +42,7 @@ def get_best_ip() -> str:
 
     return candidates[0] if candidates else "127.0.0.1"
 
-VERSION      = "1.0.0"
+VERSION      = "1.3.0"
 PORT         = 8765
 UDP_PORT     = 8766
 BATCH_MS     = 0.008   # 8 ms gamepad flush
@@ -236,7 +239,7 @@ def handle_message(data: dict, sess: Session) -> str | None:
             _ui.player_set_name(sess.player, phone_name)
     elif t == "set_stream_quality":
         level = data.get("quality")
-        if level in ('360p', '480p', '720p', 'screen'):
+        if level in ('360p', '480p', '720p', '1080p', 'screen'):
             set_quality(level)
         else:
             set_high_quality(data.get("high_quality", False))
@@ -380,23 +383,17 @@ async def handler(websocket):
 
 # ── Entry point ───────────────────────────────────────────────────────────────
 
-async def main():
+async def run_server(ui, ip: str):
+    """Run every server component against the given UI (terminal or window)."""
     global _ui
-
-    ip  = get_best_ip()
-    fw  = ensure_firewall_rule()
-
-    ui = ServerUI(ip=ip, version=VERSION, max_players=MAX_PLAYERS)
-    ui.set_firewall(fw)
     _ui = ui
-
-    if not fw:
-        ui.log("[yellow]⚠ Firewall rule missing — run as Administrator once[/]")
 
     ui.log(f"Server live · co-op ready · up to [bold]{MAX_PLAYERS}[/] players")
 
     file_transfer.set_logger(ui.log)
     casting.set_logger(ui.log)
+    usb_link.set_logger(ui.log)
+    stream_mod.set_logger(ui.log)
     file_transfer.start_file_server()
     ui.log(f"File drop ready · phone files land in [bold]Downloads\\TouchPlay[/]")
 
@@ -408,6 +405,7 @@ async def main():
             asyncio.create_task(ui.refresh_loop()),
             asyncio.create_task(capture_loop()),
             asyncio.create_task(focus_monitor_loop()),
+            asyncio.create_task(usb_link.usb_autolink_loop()),
         ]
         try:
             async with websockets.serve(handler, "0.0.0.0", PORT):
@@ -428,6 +426,74 @@ async def main():
                 release_all_inputs()
             except Exception:
                 pass
+
+
+async def main():
+    """Terminal-dashboard mode (fallback / --console)."""
+    ip = get_best_ip()
+    fw = ensure_firewall_rule()
+    ui = ServerUI(ip=ip, version=VERSION, max_players=MAX_PLAYERS)
+    ui.set_firewall(fw)
+    if not fw:
+        ui.log("[yellow]⚠ Firewall rule missing — run as Administrator once[/]")
+    await run_server(ui, ip)
+
+
+def main_gui() -> bool:
+    """Desktop-window mode (default). Tk owns the main thread; the asyncio
+    server runs on a worker thread. Returns False if Tk isn't available so
+    the caller can fall back to the terminal dashboard."""
+    import threading
+    try:
+        from gui import ServerGUI
+    except Exception:
+        return False
+
+    ip = get_best_ip()
+    fw = ensure_firewall_rule()
+    try:
+        gui = ServerGUI(ip=ip, version=VERSION, max_players=MAX_PLAYERS,
+                        drop_dir=file_transfer.DROP_DIR)
+    except Exception:
+        return False   # e.g. headless session — use the terminal instead
+    gui.set_firewall(fw)
+    if not fw:
+        gui.log("[yellow]⚠ Firewall rule missing — run once as Administrator[/]")
+
+    holder: dict = {}
+
+    def runner():
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        task = loop.create_task(run_server(gui, ip))
+        holder["loop"], holder["task"] = loop, task
+        try:
+            loop.run_until_complete(task)
+        except Exception:
+            pass
+        finally:
+            try:
+                release_all_inputs()
+            except Exception:
+                pass
+            loop.close()
+
+    t = threading.Thread(target=runner, name="touchplay-server", daemon=True)
+    t.start()
+
+    def stop_server():
+        loop, task = holder.get("loop"), holder.get("task")
+        if loop and task:
+            loop.call_soon_threadsafe(task.cancel)
+        t.join(timeout=3)   # give the loop a moment to reset gamepads
+
+    gui.set_on_close(stop_server)
+    gui.mainloop()
+    stop_server()
+    # Hard exit: stray non-daemon threads (COM/uiautomation/capture helpers)
+    # kept the process alive after the window closed — the cause of "I hit X
+    # but Task Manager still shows it". Gamepads are already reset above.
+    os._exit(0)
 
 
 def _force_utf8_console() -> None:
@@ -456,6 +522,16 @@ def _force_utf8_console() -> None:
 if __name__ == "__main__":
     import sys
     sys.tracebacklimit = 0
+    # Default: desktop window. `--console` (or a missing/broken tkinter)
+    # falls back to the rich terminal dashboard.
+    if "--console" not in sys.argv:
+        try:
+            if main_gui():
+                sys.exit(0)
+        except (KeyboardInterrupt, SystemExit):
+            sys.exit(0)
+        except Exception:
+            pass   # fall through to the terminal dashboard
     _force_utf8_console()
     try:
         asyncio.run(main())
