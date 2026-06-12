@@ -23,8 +23,15 @@ class _LayoutEditorScreenState extends State<LayoutEditorScreen> {
   String? _selId;
   bool _dragging = false;
 
+  // Alignment snapping is OPT-IN (magnet button in the top bar). Off by
+  // default — free placement first; turn it on only when you want tidy rows.
+  bool _snap = false;
+
   // Active snap guides while dragging (logical px; null = not snapped).
   double? _guideX, _guideY;
+
+  // Where the user parked the inspector card (null = auto side placement).
+  Offset? _inspPos;
 
   @override
   void initState() {
@@ -59,27 +66,30 @@ class _LayoutEditorScreenState extends State<LayoutEditorScreen> {
         _selId = null;
       });
 
-  /// Drag with alignment snapping: the item magnetises to the screen's center
-  /// lines and to other controls' axes (within 7px), showing a hairline guide
-  /// — makes tidy rows/columns effortless.
+  /// Free 1:1 drag — the control follows the finger exactly, anywhere on
+  /// screen (even half off the edge, Free Fire-style). If the user switched
+  /// the magnet on, it additionally snaps to center lines / other controls'
+  /// axes (within 7px) with a hairline guide.
   void _dragItem(ControlItem item, Offset delta, double w, double h) {
-    var nx = (item.x + delta.dx / w).clamp(0.04, 0.96);
-    var ny = (item.y + delta.dy / h).clamp(0.06, 0.94);
-    const snapPx = 7.0;
+    var nx = (item.x + delta.dx / w).clamp(0.0, 1.0);
+    var ny = (item.y + delta.dy / h).clamp(0.0, 1.0);
     double? gx, gy;
-    final xTargets = <double>[
-      0.5 * w,
-      for (final o in _layout.items) if (o.id != item.id) o.x * w,
-    ];
-    final yTargets = <double>[
-      0.5 * h,
-      for (final o in _layout.items) if (o.id != item.id) o.y * h,
-    ];
-    for (final t in xTargets) {
-      if ((nx * w - t).abs() <= snapPx) { nx = t / w; gx = t; break; }
-    }
-    for (final t in yTargets) {
-      if ((ny * h - t).abs() <= snapPx) { ny = t / h; gy = t; break; }
+    if (_snap) {
+      const snapPx = 7.0;
+      final xTargets = <double>[
+        0.5 * w,
+        for (final o in _layout.items) if (o.id != item.id) o.x * w,
+      ];
+      final yTargets = <double>[
+        0.5 * h,
+        for (final o in _layout.items) if (o.id != item.id) o.y * h,
+      ];
+      for (final t in xTargets) {
+        if ((nx * w - t).abs() <= snapPx) { nx = t / w; gx = t; break; }
+      }
+      for (final t in yTargets) {
+        if ((ny * h - t).abs() <= snapPx) { ny = t / h; gy = t; break; }
+      }
     }
     setState(() {
       item.x = nx;
@@ -129,7 +139,7 @@ class _LayoutEditorScreenState extends State<LayoutEditorScreen> {
         _topBar(),
         // Hidden while dragging so the card never blocks the very control
         // you're placing (it used to trap controls dropped on the right side).
-        if (sel != null && !_dragging) _inspector(sel),
+        if (sel != null && !_dragging) _inspector(sel, w, h),
       ]),
     );
   }
@@ -258,6 +268,21 @@ class _LayoutEditorScreenState extends State<LayoutEditorScreen> {
             ),
           )),
           const SizedBox(width: 10),
+          // Magnet: opt-in alignment snapping. Quiet when off, accent when on.
+          GestureDetector(
+            onTap: () => setState(() => _snap = !_snap),
+            child: Container(
+              width: 38, height: 38,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: _snap ? const Color(0x226FB6FF) : _panel,
+                border: _snap ? Border.all(color: _accent) : null,
+              ),
+              child: Icon(Icons.align_horizontal_center,
+                  color: _snap ? _accent : Colors.white38, size: 18),
+            ),
+          ),
+          const SizedBox(width: 8),
           GestureDetector(
             onTap: _showAddSheet,
             child: Container(
@@ -314,9 +339,10 @@ class _LayoutEditorScreenState extends State<LayoutEditorScreen> {
     ),
   );
 
-  // ── Inspector — compact side card so it never covers the controls you're
-  // placing (the old full-width bottom sheet hid everything near the bottom).
-  Widget _inspector(ControlItem item) {
+  // ── Inspector — compact card. Auto-docks on the side opposite the selected
+  // control, but the header is a drag handle: grab it and park the card
+  // anywhere it's out of your way. It remembers where you put it.
+  Widget _inspector(ControlItem item, double w, double h) {
     final isButton = item.kind == ControlKind.button;
     final isSided  = item.kind == ControlKind.stick ||
                      item.kind == ControlKind.trigger ||
@@ -348,39 +374,62 @@ class _LayoutEditorScreenState extends State<LayoutEditorScreen> {
             style: const TextStyle(color: Colors.white60, fontSize: 11))),
         ]);
 
-    // Sit on the opposite half from the selected control so the card never
-    // covers it — controls dragged to the right side stay grabbable.
+    const panelW = 232.0;
+    final panelH = (h * 0.72).clamp(230.0, h - 70.0);
+
+    // Default: dock on the opposite half from the selected control so the card
+    // never covers it. Once the user drags it, their position wins.
     final onLeft = item.x > 0.55;
+    final pos = _inspPos ?? Offset(onLeft ? 10 : w - panelW - 10, 58);
+    final px = pos.dx.clamp(8.0 - panelW * 0.5, w - panelW * 0.5);
+    final py = pos.dy.clamp(48.0, h - 60.0);
+
+    void movePanel(Offset delta) =>
+        setState(() => _inspPos = Offset(px + delta.dx, py + delta.dy));
+
     return Positioned(
-      left: onLeft ? 10 : null,
-      right: onLeft ? null : 10,
-      top: 58, bottom: 12, width: 232,
+      left: px, top: py,
+      width: panelW, height: panelH,
       child: Container(
-        padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+        padding: const EdgeInsets.fromLTRB(14, 8, 14, 12),
         decoration: BoxDecoration(
           color: _panel.withValues(alpha: 0.96),
           borderRadius: BorderRadius.circular(14),
           border: Border.all(color: _border),
         ),
-        child: SingleChildScrollView(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Drag handle — grab anywhere on this header to move the card.
+            GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onPanUpdate: (d) => movePanel(d.delta),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 4),
+                child: Row(children: [
+                  const Icon(Icons.drag_indicator,
+                      color: Colors.white30, size: 16),
+                  const SizedBox(width: 4),
+                  Icon(kindIcon(item.kind), color: Colors.white54, size: 16),
+                  const SizedBox(width: 8),
+                  Expanded(child: Text(kindName(item.kind),
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(color: Colors.white, fontSize: 14,
+                          fontWeight: FontWeight.w600))),
+                  GestureDetector(
+                    onTap: () => setState(() => _selId = null),
+                    child: const Padding(
+                      padding: EdgeInsets.all(2),
+                      child: Icon(Icons.close, color: Colors.white38, size: 16)),
+                  ),
+                ]),
+              ),
+            ),
+            Expanded(child: SingleChildScrollView(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisSize: MainAxisSize.min,
             children: [
-              Row(children: [
-                Icon(kindIcon(item.kind), color: Colors.white54, size: 16),
-                const SizedBox(width: 8),
-                Expanded(child: Text(kindName(item.kind),
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(color: Colors.white, fontSize: 14,
-                        fontWeight: FontWeight.w600))),
-                GestureDetector(
-                  onTap: () => setState(() => _selId = null),
-                  child: const Padding(
-                    padding: EdgeInsets.all(2),
-                    child: Icon(Icons.close, color: Colors.white38, size: 16)),
-                ),
-              ]),
               if (isButton) ...[
                 sectionLabel('Binding'),
                 GestureDetector(
@@ -435,6 +484,8 @@ class _LayoutEditorScreenState extends State<LayoutEditorScreen> {
               ),
             ],
           ),
+            )),
+          ],
         ),
       ),
     );

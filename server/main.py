@@ -52,13 +52,14 @@ GRACE_SECONDS = 20
 # ── Per-phone session ─────────────────────────────────────────────────────────
 
 class Session:
-    __slots__ = ("player", "gamepad", "dirty", "connected", "ip", "device_id", "connected_at", "websocket")
+    __slots__ = ("player", "gamepad", "dirty", "connected", "ip", "device_id", "connected_at", "websocket", "label")
 
     def __init__(self, player: int, ip: str, websocket) -> None:
         self.player       = player
         self.ip           = ip
         self.device_id    = None
         self.websocket    = websocket
+        self.label        = None   # "PlayerName · PhoneModel" from client_info
         
         loop = asyncio.get_running_loop()
         def on_rumble(large, small):
@@ -234,9 +235,19 @@ def handle_message(data: dict, sess: Session) -> str | None:
     elif t == "ping":
         return json.dumps({"type": "pong"})
     elif t == "client_info":
-        phone_name = data.get("phone_name")
-        if phone_name and _ui:
-            _ui.player_set_name(sess.player, phone_name)
+        phone_name  = data.get("phone_name")
+        # The name the player chose in the app's first-launch intro — leads the
+        # label so the PC shows "Santosh · Pixel 8" instead of a bare model.
+        player_name = data.get("player_name")
+        if player_name and phone_name:
+            label = f"{player_name} · {phone_name}"
+        else:
+            label = player_name or phone_name
+        if label and label != sess.label and _ui:
+            sess.label = label
+            _ui.player_set_name(sess.player, label)
+            if player_name:
+                _ui.log(f"[bright_cyan]●[/] [bold]P{sess.player}[/] is [bold]{player_name}[/]")
     elif t == "set_stream_quality":
         level = data.get("quality")
         if level in ('360p', '480p', '720p', '1080p', 'screen'):

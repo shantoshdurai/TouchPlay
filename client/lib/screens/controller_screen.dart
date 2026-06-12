@@ -18,6 +18,7 @@ import '../widgets/forza_controls.dart';
 import '../widgets/custom_controls.dart';
 import '../widgets/ambience.dart';
 import 'layout_editor.dart';
+import '../widgets/privacy_dialog.dart';
 
 // Split out of this file for navigability; they remain part of the same library
 // so the private (_-prefixed) widgets stay private and share these imports.
@@ -300,11 +301,33 @@ class _ControllerScreenState extends State<ControllerScreen> {
     await prefs.setString('selected_profile', id);
     final seen = prefs.getBool('forza_chooser_seen') ?? false;
     if (!mounted) return;
+    // Layouts are fully isolated: switching releases every input the old
+    // layout might still be holding (sticks, triggers, keys, mouse buttons)
+    // so presets can never bleed into each other mid-game.
+    WebSocketService.instance.send({'type': 'reset'});
     setState(() {
       _profileId        = id;
       _showGames        = false;
       _showSteerChooser = id == 'forza' && !seen;
     });
+  }
+
+  // ── Share codes — export/import layouts as Free Fire-style text codes ──────
+  void _shareLayout(CustomLayout l) {
+    Clipboard.setData(ClipboardData(text: encodeLayoutCode(l)));
+    Haptics.instance.tick();
+    setState(() => _showGames = false);
+    _showToast('"${l.name}" code copied — send it to a friend');
+  }
+
+  Future<void> _importLayout() async {
+    final imported = await showDialog<CustomLayout>(
+        context: context, builder: (_) => const _ImportCodeDialog());
+    if (imported == null || !mounted) return;
+    _customLayouts.add(imported);
+    await CustomLayoutStore.saveAll(_customLayouts);
+    await _selectProfile('custom:${imported.id}');
+    _showToast('Imported "${imported.name}" — now active');
   }
 
   Future<void> _setSteer(String mode, {bool markSeen = false}) async {
@@ -531,6 +554,8 @@ class _ControllerScreenState extends State<ControllerScreen> {
               onEdit: _openEditor,
               onDelete: _deleteCustom,
               onCustomize: _customizePreset,
+              onShare: _shareLayout,
+              onImport: _importLayout,
               onClose: () => setState(() => _showGames = false),
             ),
           if (_keyboardMode)

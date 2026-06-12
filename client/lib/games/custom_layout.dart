@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io' show gzip;
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../services/websocket_service.dart' show SensitivitySettings;
@@ -220,7 +221,50 @@ double defaultSize(ControlKind k) {
   }
 }
 
-String _newId() => DateTime.now().microsecondsSinceEpoch.toString();
+int _idSeq = 0;
+// Timestamp + counter: ids stay unique even when many are minted in the same
+// microsecond (e.g. importing a shared layout re-ids every control in a loop).
+String _newId() => '${DateTime.now().microsecondsSinceEpoch}-${_idSeq++}';
+
+// ── Share codes (Free Fire-style) ────────────────────────────────────────────
+// A layout exports to one compact text code:  TPL1.<base64url(gzip(json))>
+// Everything travels inside it — positions, sizes, bindings, labels, icons,
+// opacity — so the importer gets an identical copy on any phone (positions are
+// stored as screen fractions, so it adapts to their resolution automatically).
+
+String encodeLayoutCode(CustomLayout l) {
+  final bytes = gzip.encode(utf8.encode(json.encode(l.toJson())));
+  return 'TPL1.${base64UrlEncode(bytes).replaceAll('=', '')}';
+}
+
+/// Returns null if the code is corrupt / not a TouchPlay layout code.
+/// The imported layout (and every control in it) gets FRESH ids, so a pasted
+/// layout can never collide with or overwrite the user's existing layouts —
+/// it always lands as a new, independent entry.
+CustomLayout? decodeLayoutCode(String code) {
+  try {
+    var body = code.trim().replaceAll(RegExp(r'\s+'), '');
+    if (body.toUpperCase().startsWith('TPL1.')) body = body.substring(5);
+    final pad = (4 - body.length % 4) % 4;
+    final bytes = base64Url.decode(body + '=' * pad);
+    final l = CustomLayout.fromJson(
+        json.decode(utf8.decode(gzip.decode(bytes))) as Map<String, dynamic>);
+    if (l.items.isEmpty && !l.floatingSticks) return null;
+    l.id = _newId();
+    for (final item in l.items) {
+      item.id = _newId();
+      // Defensive clamp — a hand-tampered code can't park controls off-screen
+      // or at absurd sizes.
+      item.x = item.x.clamp(0.0, 1.0);
+      item.y = item.y.clamp(0.0, 1.0);
+      item.size = item.size.clamp(24.0, 480.0);
+      item.opacity = item.opacity.clamp(0.1, 1.0);
+    }
+    return l;
+  } catch (_) {
+    return null;
+  }
+}
 
 ControlItem newControl(ControlKind kind, {String action = ''}) => ControlItem(
       id: _newId(),

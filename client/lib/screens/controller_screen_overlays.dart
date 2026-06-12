@@ -12,6 +12,8 @@ class _GamePicker extends StatefulWidget {
     required this.onEdit,
     required this.onDelete,
     required this.onCustomize,
+    required this.onShare,
+    required this.onImport,
     required this.onClose,
   });
   final String currentId;
@@ -21,6 +23,8 @@ class _GamePicker extends StatefulWidget {
   final ValueChanged<CustomLayout> onEdit;
   final ValueChanged<CustomLayout> onDelete;
   final ValueChanged<String> onCustomize;
+  final ValueChanged<CustomLayout> onShare;
+  final VoidCallback onImport;
   final VoidCallback onClose;
 
   @override
@@ -123,21 +127,39 @@ class _GamePickerState extends State<_GamePicker> {
                         _customRow(l),
                       Padding(
                         padding: const EdgeInsets.fromLTRB(14, 10, 14, 14),
-                        child: GestureDetector(
-                          onTap: () { widget.onClose(); widget.onNew(); },
-                          child: Container(
-                            height: 40, alignment: Alignment.center,
-                            decoration: BoxDecoration(
-                              borderRadius: BorderRadius.circular(10),
-                              border: Border.all(color: _accent)),
-                            child: const Row(mainAxisSize: MainAxisSize.min, children: [
-                              Icon(Icons.add, color: _accent, size: 16),
-                              SizedBox(width: 6),
-                              Text('New custom layout', style: TextStyle(
-                                color: _accent, fontSize: 12, fontWeight: FontWeight.w600)),
-                            ]),
-                          ),
-                        ),
+                        child: Row(children: [
+                          Expanded(child: GestureDetector(
+                            onTap: () { widget.onClose(); widget.onNew(); },
+                            child: Container(
+                              height: 40, alignment: Alignment.center,
+                              decoration: BoxDecoration(
+                                borderRadius: BorderRadius.circular(10),
+                                border: Border.all(color: _accent)),
+                              child: const Row(mainAxisSize: MainAxisSize.min, children: [
+                                Icon(Icons.add, color: _accent, size: 16),
+                                SizedBox(width: 6),
+                                Text('New layout', style: TextStyle(
+                                  color: _accent, fontSize: 12, fontWeight: FontWeight.w600)),
+                              ]),
+                            ),
+                          )),
+                          const SizedBox(width: 8),
+                          Expanded(child: GestureDetector(
+                            onTap: () { widget.onClose(); widget.onImport(); },
+                            child: Container(
+                              height: 40, alignment: Alignment.center,
+                              decoration: BoxDecoration(
+                                borderRadius: BorderRadius.circular(10),
+                                border: Border.all(color: const Color(0xFF2C2C40))),
+                              child: const Row(mainAxisSize: MainAxisSize.min, children: [
+                                Icon(Icons.download_rounded, color: Colors.white60, size: 16),
+                                SizedBox(width: 6),
+                                Text('Import code', style: TextStyle(
+                                  color: Colors.white70, fontSize: 12, fontWeight: FontWeight.w600)),
+                              ]),
+                            ),
+                          )),
+                        ]),
                       ),
                     ],
                   ]),
@@ -234,6 +256,15 @@ class _GamePickerState extends State<_GamePicker> {
             ],
           )),
           GestureDetector(
+            onTap: () => widget.onShare(l),
+            child: Container(
+              padding: const EdgeInsets.all(5),
+              decoration: const BoxDecoration(shape: BoxShape.circle, color: Color(0xFF1A1A24)),
+              child: const Icon(Icons.share_outlined, size: 14, color: Colors.white54),
+            ),
+          ),
+          const SizedBox(width: 6),
+          GestureDetector(
             onTap: () => widget.onEdit(l),
             child: Container(
               padding: const EdgeInsets.all(5),
@@ -305,6 +336,126 @@ class _TemplatePicker extends StatelessWidget {
         _opt(Icons.crop_square, 'Blank canvas', 'Start empty', 'blank'),
         _opt(Icons.sports_esports, 'Gamepad starter', 'ABXY, sticks, bumpers, D-pad', 'gamepad'),
         _opt(Icons.keyboard, 'Keyboard + Mouse', 'WASD, mouse pad, clicks', 'kbm'),
+      ]),
+    ),
+  );
+}
+
+// ── Import layout from a share code ───────────────────────────────────────────
+// Paste a friend's TPL1.… code → instant copy of their layout (new ids, so it
+// never collides with yours). Pops with the decoded CustomLayout, or null.
+
+class _ImportCodeDialog extends StatefulWidget {
+  const _ImportCodeDialog();
+  @override State<_ImportCodeDialog> createState() => _ImportCodeDialogState();
+}
+
+class _ImportCodeDialogState extends State<_ImportCodeDialog> {
+  final _ctrl = TextEditingController();
+  String? _error;
+
+  @override
+  void dispose() { _ctrl.dispose(); super.dispose(); }
+
+  Future<void> _paste() async {
+    final data = await Clipboard.getData(Clipboard.kTextPlain);
+    final text = data?.text?.trim() ?? '';
+    if (text.isEmpty) {
+      setState(() => _error = 'Clipboard is empty.');
+      return;
+    }
+    setState(() { _ctrl.text = text; _error = null; });
+  }
+
+  void _import() {
+    final l = decodeLayoutCode(_ctrl.text);
+    if (l == null) {
+      setState(() => _error = 'That code isn’t a valid TouchPlay layout. '
+          'Make sure you copied the whole thing.');
+      return;
+    }
+    Haptics.instance.tick();
+    Navigator.of(context).pop(l);
+  }
+
+  @override
+  Widget build(BuildContext context) => Dialog(
+    backgroundColor: Colors.transparent,
+    insetPadding: const EdgeInsets.all(20),
+    child: Container(
+      width: 400,
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: const Color(0xFF0D0D14),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFF20202C)),
+      ),
+      child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+        const Text('IMPORT LAYOUT CODE', style: TextStyle(
+          color: Color(0xFF6FB6FF), fontSize: 11, fontWeight: FontWeight.bold, letterSpacing: 2)),
+        const SizedBox(height: 6),
+        const Text('Paste a code a friend shared — you get an exact copy of their layout.',
+          style: TextStyle(color: Colors.white38, fontSize: 11, height: 1.4)),
+        const SizedBox(height: 12),
+        TextField(
+          controller: _ctrl,
+          maxLines: 3,
+          style: const TextStyle(color: Colors.white, fontSize: 12),
+          onChanged: (_) { if (_error != null) setState(() => _error = null); },
+          decoration: InputDecoration(
+            hintText: 'TPL1.…',
+            hintStyle: const TextStyle(color: Colors.white24),
+            filled: true, fillColor: const Color(0xFF15151F),
+            contentPadding: const EdgeInsets.all(12),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(10),
+              borderSide: const BorderSide(color: Color(0xFF252535))),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(10),
+              borderSide: const BorderSide(color: Color(0xFF6FB6FF))),
+          ),
+        ),
+        if (_error != null) ...[
+          const SizedBox(height: 8),
+          Text(_error!, style: const TextStyle(color: Color(0xFFE57373), fontSize: 11)),
+        ],
+        const SizedBox(height: 14),
+        Row(children: [
+          Expanded(child: GestureDetector(
+            onTap: _paste,
+            child: Container(
+              padding: const EdgeInsets.symmetric(vertical: 11),
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.06),
+                borderRadius: BorderRadius.circular(22),
+                border: Border.all(color: Colors.white.withValues(alpha: 0.18)),
+              ),
+              child: const Row(mainAxisSize: MainAxisSize.min, children: [
+                Icon(Icons.content_paste, size: 15, color: Colors.white70),
+                SizedBox(width: 6),
+                Text('Paste', style: TextStyle(
+                  color: Colors.white70, fontWeight: FontWeight.w600, fontSize: 12.5)),
+              ]),
+            ),
+          )),
+          const SizedBox(width: 10),
+          Expanded(child: GestureDetector(
+            onTap: _import,
+            child: Container(
+              padding: const EdgeInsets.symmetric(vertical: 11),
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: const Color(0xFFE9EDF4),
+                borderRadius: BorderRadius.circular(22),
+                boxShadow: [BoxShadow(
+                  color: Colors.white.withValues(alpha: 0.15), blurRadius: 12)],
+              ),
+              child: const Text('Import', style: TextStyle(
+                color: Color(0xFF10141B), fontWeight: FontWeight.bold, fontSize: 12.5)),
+            ),
+          )),
+        ]),
       ]),
     ),
   );
@@ -894,24 +1045,66 @@ class _MenuPanelState extends State<_MenuPanel> {
         const Text('Have you installed the latest TouchPlay server on your PC? It’s required to connect.',
           style: TextStyle(color: Colors.white60, fontSize: 11, height: 1.35)),
         const SizedBox(height: 10),
-        GestureDetector(
-          onTap: () => _open(_releasesUrl),
-          child: Container(
-            width: double.infinity,
-            alignment: Alignment.center,
-            padding: const EdgeInsets.symmetric(vertical: 9),
-            decoration: BoxDecoration(
-              color: const Color(0xFFE9EDF4),
-              borderRadius: BorderRadius.circular(20),
-              boxShadow: [
-                BoxShadow(
-                    color: Colors.white.withValues(alpha: 0.15),
-                    blurRadius: 12),
-              ],
+        Row(
+          children: [
+            Expanded(
+              child: GestureDetector(
+                onTap: () => _open(_releasesUrl),
+                child: Container(
+                  alignment: Alignment.center,
+                  padding: const EdgeInsets.symmetric(vertical: 9),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFE9EDF4),
+                    borderRadius: BorderRadius.circular(8),
+                    boxShadow: [
+                      BoxShadow(
+                          color: Colors.white.withValues(alpha: 0.15),
+                          blurRadius: 12),
+                    ],
+                  ),
+                  child: const Text('Go to Release',
+                      style: TextStyle(
+                          color: Color(0xFF10141B),
+                          fontSize: 12.5,
+                          fontWeight: FontWeight.bold)),
+                ),
+              ),
             ),
-            child: const Text('Go to Release', style: TextStyle(
-              color: Color(0xFF10141B), fontSize: 12.5, fontWeight: FontWeight.bold)),
-          ),
+            const SizedBox(width: 8),
+            GestureDetector(
+              onTap: () => _open('https://github.com/shantoshdurai/touchplay-releases/archive/refs/heads/main.zip'),
+              child: Container(
+                padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 10),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFE9EDF4),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Icon(Icons.download_rounded,
+                    color: Color(0xFF10141B), size: 18),
+              ),
+            ),
+            const SizedBox(width: 8),
+            GestureDetector(
+              onTap: () {
+                Haptics.instance.tick();
+                Clipboard.setData(const ClipboardData(text: _releasesUrl));
+                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                  content: Text('Link copied to clipboard', style: TextStyle(color: Colors.white)),
+                  backgroundColor: Color(0xFF14161F),
+                  duration: Duration(seconds: 2),
+                ));
+              },
+              child: Container(
+                padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 10),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFE9EDF4),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Icon(Icons.content_copy_rounded,
+                    color: Color(0xFF10141B), size: 18),
+              ),
+            ),
+          ],
         ),
         const SizedBox(height: 6),
         GestureDetector(
@@ -925,33 +1118,10 @@ class _MenuPanelState extends State<_MenuPanel> {
       ]),
     ),
     const SizedBox(height: 8),
-    _row(Icons.feedback_outlined, 'Send Feedback', () => _open(_feedbackUrl)),
-    _row(Icons.system_update_alt, 'Check for Update', () => _open(_releasesUrl)),
-    _row(Icons.help_outline, 'How to use', () => setState(() => _view = 'howto')),
-    _row(Icons.settings_outlined, 'Settings', widget.onSettings),
-    _row(Icons.info_outline, 'About the App', () => setState(() => _view = 'about')),
-    _row(Icons.privacy_tip_outlined, 'Privacy Policy',
-        () => setState(() => _view = 'privacy')),
-    _row(Icons.forum_outlined, 'Join Community', () => _open(_communityUrl),
-        tint: const Color(0xFF6FB6FF), last: true),
+    _row(Icons.settings_outlined, 'Settings', widget.onSettings, last: true),
   ]);
 
-  Widget _privacy() => const Column(
-    crossAxisAlignment: CrossAxisAlignment.start,
-    children: [
-      Text('Your data stays on your network.', style: TextStyle(
-        color: Colors.white, fontSize: 13, fontWeight: FontWeight.w600)),
-      SizedBox(height: 8),
-      Text(
-        'TouchPlay talks directly to the TouchPlay server on your own PC over '
-        'local Wi-Fi or USB. Controller input, the screen stream, camera '
-        'frames and transferred files travel only between your phone and '
-        'your PC — nothing is sent to us or any third party. No analytics, '
-        'no ads, no tracking.\n\n'
-        'Settings are stored only on this device. Camera and screen-capture '
-        'run only while you actively use Virtual Cam or Projector.',
-        style: TextStyle(color: Colors.white60, fontSize: 11, height: 1.5)),
-    ]);
+
 
   Widget _howto() => Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
     const Text('This app is your gamepad — it sends your touches to a PC running the free TouchPlay server.',
@@ -1011,7 +1181,7 @@ class _MenuPanelState extends State<_MenuPanel> {
         ),
       Text(switch (_view) {
         'howto' => 'How to use',
-        'privacy' => 'Privacy Policy',
+
         'home' => 'Menu',
         _ => 'About',
       },
@@ -1065,7 +1235,7 @@ class _MenuPanelState extends State<_MenuPanel> {
                     padding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
                     child: switch (_view) {
                       'howto' => _howto(),
-                      'privacy' => _privacy(),
+
                       'home' => _home(),
                       _ => _about(),
                     },

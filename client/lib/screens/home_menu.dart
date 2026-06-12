@@ -6,9 +6,14 @@ import 'dart:ui' show ImageFilter;
 import 'package:flutter/material.dart' hide ConnectionState;
 import 'package:flutter/scheduler.dart' show Ticker;
 import 'package:audioplayers/audioplayers.dart';
+import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../services/haptics.dart';
+import '../services/player_profile.dart';
 import '../widgets/ambience.dart';
+import '../widgets/privacy_dialog.dart';
+import '../widgets/coach_marks.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../services/websocket_service.dart'
     show WebSocketService, ConnectionState;
 
@@ -92,6 +97,9 @@ class HomeMenu extends StatefulWidget {
   final VoidCallback onVirtualCam;
   final VoidCallback onProjector;
 
+  /// Replays the first-launch intro (prefilled) so the player can rename.
+  final VoidCallback? onReplayIntro;
+
   const HomeMenu({
     super.key,
     required this.onGamepad,
@@ -100,6 +108,7 @@ class HomeMenu extends StatefulWidget {
     required this.onFiles,
     required this.onVirtualCam,
     required this.onProjector,
+    this.onReplayIntro,
   });
 
   @override
@@ -133,7 +142,9 @@ class _HomeMenuState extends State<HomeMenu> with TickerProviderStateMixin {
   int _selectedIndex = 0;
   bool _showSettings = false;
   bool _showSearch = false;
+  bool _showCoachMarks = false;
   late final List<_Feature> _features;
+  final ScrollController _railCtrl = ScrollController();
 
   // Particle animation
   final _rng = Random(42);
@@ -235,6 +246,12 @@ class _HomeMenuState extends State<HomeMenu> with TickerProviderStateMixin {
     _wsSub = WebSocketService.instance.stateStream.listen((s) {
       if (mounted) setState(() => _wsState = s);
     });
+
+    SharedPreferences.getInstance().then((prefs) {
+      if (!(prefs.getBool('coach_marks_shown') ?? false)) {
+        if (mounted) setState(() => _showCoachMarks = true);
+      }
+    });
   }
 
   bool _coversPrecached = false;
@@ -263,6 +280,12 @@ class _HomeMenuState extends State<HomeMenu> with TickerProviderStateMixin {
   }
 
   Future<void> _initAudio() async {
+    AudioPlayer.global.setAudioContext(AudioContextConfig(
+      respectSilence: false,
+      stayAwake: false,
+      focus: AudioContextConfigFocus.mixWithOthers,
+    ).build());
+
     _navPlayer = AudioPlayer()..setReleaseMode(ReleaseMode.stop);
     _selectPlayer = AudioPlayer()..setReleaseMode(ReleaseMode.stop);
     _backPlayer = AudioPlayer()..setReleaseMode(ReleaseMode.stop);
@@ -286,6 +309,7 @@ class _HomeMenuState extends State<HomeMenu> with TickerProviderStateMixin {
     _sfx(_navPlayer);
     Haptics.instance.tick();
     setState(() => _selectedIndex = i);
+    _revealSelected();
     _accentTween = ColorTween(
       begin: _accentColorNotifier.value,
       end: _featureGradients[i][0],
@@ -330,6 +354,7 @@ class _HomeMenuState extends State<HomeMenu> with TickerProviderStateMixin {
     _accentAnim.dispose();
     _tickNotifier.dispose();
     _accentColorNotifier.dispose();
+    _railCtrl.dispose();
     _wsSub?.cancel();
     super.dispose();
   }
@@ -399,7 +424,7 @@ class _HomeMenuState extends State<HomeMenu> with TickerProviderStateMixin {
               children: [
                 const SizedBox(height: 24),
                 _topBar(),
-                const SizedBox(height: 16), // Tight gap
+                _greeting(), // "Good evening, Name." — carries the tight gap
                 _rail(),
                 const SizedBox(height: 6), // Tight gap exactly like PS5
                 _titleText(),
@@ -453,6 +478,14 @@ class _HomeMenuState extends State<HomeMenu> with TickerProviderStateMixin {
               },
               onClose: () => setState(() => _showSearch = false),
             ),
+          if (_showCoachMarks)
+            CoachMarksOverlay(
+              onDismiss: () {
+                setState(() => _showCoachMarks = false);
+                SharedPreferences.getInstance().then(
+                    (p) => p.setBool('coach_marks_shown', true));
+              },
+            ),
         ],
       ),
     );
@@ -498,29 +531,60 @@ class _HomeMenuState extends State<HomeMenu> with TickerProviderStateMixin {
         ),
       );
 
+  // ── Greeting — the intro's saved name, time-of-day aware ─────────────────────
+  Widget _greeting() => ValueListenableBuilder<String?>(
+        valueListenable: PlayerProfile.instance.name,
+        builder: (_, name, __) => Padding(
+          padding: EdgeInsets.fromLTRB(20, name == null ? 0 : 5, 20, 16),
+          child: name == null
+              ? const SizedBox.shrink()
+              : Text('${PlayerProfile.greeting()}, $name.',
+                  style: TextStyle(
+                      color: Colors.white.withValues(alpha: 0.45),
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w300,
+                      letterSpacing: 0.3)),
+        ),
+      );
+
   // ── Icon rail ─────────────────────────────────────────────────────────────────
+  // Tiles render at full size on every screen. When they don't all fit
+  // (portrait), the rail scrolls horizontally — swipe through it with a
+  // finger, PS5-style — instead of shrinking the art to cram everything in.
   Widget _rail() => SizedBox(
         height: 108, // Accommodates the centered focused icon precisely
-        child: Padding(
-          padding: const EdgeInsets.only(left: _railLeftOffset),
-          child: Align(
-            alignment: Alignment.centerLeft,
-            // scaleDown lets the rail shrink as one piece on narrow (portrait)
-            // screens instead of overflowing; landscape renders 1:1.
-            child: FittedBox(
-              fit: BoxFit.scaleDown,
-              alignment: Alignment.centerLeft,
-              child: SizedBox(
-                height: 108,
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.center,
-                  children: List.generate(_features.length, _slotFor),
-                ),
-              ),
-            ),
+        child: SingleChildScrollView(
+          controller: _railCtrl,
+          scrollDirection: Axis.horizontal,
+          physics: const BouncingScrollPhysics(),
+          padding: const EdgeInsets.only(left: _railLeftOffset, right: 20),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: List.generate(_features.length, _slotFor),
           ),
         ),
       );
+
+  /// Glide the rail just enough to keep the focused tile fully on screen
+  /// (with a little breathing room), like a console launcher.
+  void _revealSelected() {
+    if (!_railCtrl.hasClients) return;
+    final viewW  = _railCtrl.position.viewportDimension;
+    final left   = _railLeftOffset + _selectedIndex * _slotUnsel;
+    final right  = left + _slotSel + 20;
+    var target = _railCtrl.offset;
+    if (left - 16 < target) {
+      target = left - 16;
+    } else if (right + 16 > target + viewW) {
+      target = right + 16 - viewW;
+    }
+    target = target.clamp(0.0, _railCtrl.position.maxScrollExtent);
+    if (target != _railCtrl.offset) {
+      _railCtrl.animateTo(target,
+          duration: const Duration(milliseconds: 300),
+          curve: Curves.easeOutCubic);
+    }
+  }
 
   Widget _slotFor(int i) {
     final selected = i == _selectedIndex;
@@ -601,12 +665,22 @@ class _HomeMenuState extends State<HomeMenu> with TickerProviderStateMixin {
 
   // ── Feature Title ─────────────────────────────────────────────────────────────
   Widget _titleText() {
-    // Exact PS5 dynamic tracking: the text follows the focused icon perfectly
+    // Exact PS5 dynamic tracking: the text follows the focused icon perfectly,
+    // compensating for however far the rail has been swiped.
     final leftOffset = _selectedIndex * _slotUnsel;
-    return AnimatedPadding(
-      duration: const Duration(milliseconds: 300),
-      curve: Curves.easeOutCubic,
-      padding: EdgeInsets.only(left: _railLeftOffset + leftOffset),
+    return AnimatedBuilder(
+      animation: _railCtrl,
+      builder: (_, child) {
+        final scroll = _railCtrl.hasClients ? _railCtrl.offset : 0.0;
+        return AnimatedPadding(
+          duration: const Duration(milliseconds: 300),
+          curve: Curves.easeOutCubic,
+          padding: EdgeInsets.only(
+              left: (_railLeftOffset + leftOffset - scroll)
+                  .clamp(_railLeftOffset, double.infinity)),
+          child: child,
+        );
+      },
       child: AnimatedSwitcher(
         duration: const Duration(milliseconds: 200),
         child: Row(
@@ -697,7 +771,13 @@ class _HomeMenuState extends State<HomeMenu> with TickerProviderStateMixin {
       );
 
   // ── Settings overlay ──────────────────────────────────────────────────────────
-  Widget _settingsOverlay() => _SettingsPanel(onClose: _closeSettings);
+  Widget _settingsOverlay() => _SettingsPanel(
+      onClose: _closeSettings,
+      onReplayIntro: widget.onReplayIntro,
+      onReplayCoachMarks: () {
+        _closeSettings();
+        setState(() => _showCoachMarks = true);
+      });
 }
 
 // ── Xbox-letter face buttons ──────────────────────────────────────────────────
@@ -914,8 +994,10 @@ class _StickPainter extends CustomPainter {
 // ── Settings Panel (Gamepad-style UI with Gaussian Blur) ──────────────────────
 class _SettingsPanel extends StatefulWidget {
   final VoidCallback onClose;
+  final VoidCallback? onReplayIntro;
+  final VoidCallback? onReplayCoachMarks;
 
-  const _SettingsPanel({required this.onClose});
+  const _SettingsPanel({required this.onClose, this.onReplayIntro, this.onReplayCoachMarks});
 
   @override
   State<_SettingsPanel> createState() => _SettingsPanelState();
@@ -1025,27 +1107,54 @@ class _SettingsPanelState extends State<_SettingsPanel> {
                 style: TextStyle(
                     color: Colors.white60, fontSize: 11, height: 1.35)),
             const SizedBox(height: 10),
-            GestureDetector(
-              onTap: () => _open(_releasesUrl),
-              child: Container(
-                width: double.infinity,
-                alignment: Alignment.center,
-                padding: const EdgeInsets.symmetric(vertical: 9),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFE9EDF4),
-                  borderRadius: BorderRadius.circular(20),
-                  boxShadow: [
-                    BoxShadow(
-                        color: Colors.white.withValues(alpha: 0.15),
-                        blurRadius: 12),
-                  ],
+            Row(
+              children: [
+                Expanded(
+                  child: GestureDetector(
+                    onTap: () => _open(_releasesUrl),
+                    child: Container(
+                      alignment: Alignment.center,
+                      padding: const EdgeInsets.symmetric(vertical: 9),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFE9EDF4),
+                        borderRadius: BorderRadius.circular(8),
+                        boxShadow: [
+                          BoxShadow(
+                              color: Colors.white.withValues(alpha: 0.15),
+                              blurRadius: 12),
+                        ],
+                      ),
+                      child: const Text('Go to Release',
+                          style: TextStyle(
+                              color: Color(0xFF10141B),
+                              fontSize: 12.5,
+                              fontWeight: FontWeight.bold)),
+                    ),
+                  ),
                 ),
-                child: const Text('Go to Release',
-                    style: TextStyle(
-                        color: Color(0xFF10141B),
-                        fontSize: 12.5,
-                        fontWeight: FontWeight.bold)),
-              ),
+
+                const SizedBox(width: 8),
+                GestureDetector(
+                  onTap: () {
+                    Haptics.instance.tick();
+                    Clipboard.setData(const ClipboardData(text: _releasesUrl));
+                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                      content: Text('Link copied to clipboard', style: TextStyle(color: Colors.white)),
+                      backgroundColor: Color(0xFF14161F),
+                      duration: Duration(seconds: 2),
+                    ));
+                  },
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 10),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFE9EDF4),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: const Icon(Icons.content_copy_rounded,
+                        color: Color(0xFF10141B), size: 18),
+                  ),
+                ),
+              ],
             ),
             const SizedBox(height: 6),
             GestureDetector(
@@ -1067,10 +1176,20 @@ class _SettingsPanelState extends State<_SettingsPanel> {
             () => setState(() => _view = 'howto')),
         _row(Icons.tune_rounded, 'Controller Settings',
             () => setState(() => _view = 'controls')),
+        if (widget.onReplayIntro != null)
+          _row(Icons.person_outline, 'Change Your Name', () {
+            widget.onClose();
+            widget.onReplayIntro!();
+          }),
+        if (widget.onReplayCoachMarks != null)
+          _row(Icons.play_circle_outline, 'Replay Coach Marks', widget.onReplayCoachMarks!),
         _row(Icons.info_outline, 'About the App',
             () => setState(() => _view = 'about')),
         _row(Icons.privacy_tip_outlined, 'Privacy Policy',
-            () => setState(() => _view = 'privacy')),
+            () {
+              widget.onClose();
+              showPrivacyDialog(context);
+            }),
         _row(Icons.forum_outlined, 'Join Community',
             () => _open(_communityUrl),
             tint: const Color(0xFF6FB6FF), last: true),
@@ -1176,31 +1295,7 @@ class _SettingsPanelState extends State<_SettingsPanel> {
     ]);
   }
 
-  Widget _privacy() => const Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text('Your data stays on your network.',
-              style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600)),
-          SizedBox(height: 8),
-          Text(
-            'TouchPlay connects directly to the TouchPlay server on your own '
-            'PC over your local Wi-Fi or USB. Controller input, the screen '
-            'stream, camera frames and transferred files travel only between '
-            'your phone and your PC — nothing is sent to us or any third '
-            'party, and the app has no analytics, ads or tracking.\n\n'
-            'The app stores your settings (sensitivity, vibration, layouts) '
-            'only on this device. Camera and screen-capture access run only '
-            'while you actively use Virtual Cam or Projector and stop the '
-            'moment you end them.\n\n'
-            'TouchPlay is free and open: if you have questions, open an '
-            'issue on our GitHub.',
-            style: TextStyle(color: Colors.white60, fontSize: 11, height: 1.5),
-          ),
-        ],
-      );
+
 
   Widget _howto() =>
       Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -1248,7 +1343,7 @@ class _SettingsPanelState extends State<_SettingsPanel> {
                 'howto' => 'HOW TO USE',
                 'about' => 'ABOUT',
                 'controls' => 'CONTROLLER SETTINGS',
-                'privacy' => 'PRIVACY POLICY',
+
                 _ => 'MENU',
               },
               style: const TextStyle(
@@ -1317,7 +1412,7 @@ class _SettingsPanelState extends State<_SettingsPanel> {
                           'howto' => _howto(),
                           'about' => _about(),
                           'controls' => _controls(),
-                          'privacy' => _privacy(),
+
                           _ => _home(),
                         },
                       ),

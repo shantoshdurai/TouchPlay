@@ -1,22 +1,31 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
-
-    <uses-permission android:name="android.permission.INTERNET"/>
-    <uses-permission android:name="android.permission.VIBRATE"/>
+    <uses-permission
+        android:name="android.permission.INTERNET"/>
+    <uses-permission
+        android:name="android.permission.VIBRATE"/>
     <!-- WAKE_LOCK is required to acquire the Wi-Fi lock that keeps the LAN socket
          alive during play; ACCESS_WIFI_STATE lets us create that lock. -->
-    <uses-permission android:name="android.permission.WAKE_LOCK"/>
-    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE"/>
+    <uses-permission
+        android:name="android.permission.WAKE_LOCK"/>
+    <uses-permission
+        android:name="android.permission.ACCESS_WIFI_STATE"/>
     <!-- Virtual Cam: phone camera streamed to the PC as a webcam. -->
-    <uses-permission android:name="android.permission.CAMERA"/>
-    <uses-feature android:name="android.hardware.camera" android:required="false"/>
+    <uses-permission
+        android:name="android.permission.CAMERA"/>
+    <uses-feature
+        android:name="android.hardware.camera"
+        android:required="false"/>
     <!-- Projector: MediaProjection must run inside a typed foreground service. -->
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION"/>
-    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+    <uses-permission
+        android:name="android.permission.FOREGROUND_SERVICE"/>
+    <uses-permission
+        android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION"/>
+    <uses-permission
+        android:name="android.permission.POST_NOTIFICATIONS"/>
     <!-- File Transfer: saving into public Downloads needs this only on Android 9-. -->
-    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+    <uses-permission
+        android:name="android.permission.WRITE_EXTERNAL_STORAGE"
         android:maxSdkVersion="28"/>
-
     <application
         android:label="TouchPlay"
         android:name="${applicationName}"
@@ -30,11 +39,10 @@
             android:theme="@style/LaunchTheme"
             android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
             android:hardwareAccelerated="true"
-            android:screenOrientation="sensorLandscape"
             android:windowSoftInputMode="adjustResize">
             <meta-data
-              android:name="io.flutter.embedding.android.NormalTheme"
-              android:resource="@style/NormalTheme"/>
+                android:name="io.flutter.embedding.android.NormalTheme"
+                android:resource="@style/NormalTheme"/>
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>
@@ -50,17 +58,23 @@
     </application>
     <queries>
         <intent>
-            <action android:name="android.intent.action.PROCESS_TEXT"/>
-            <data android:mimeType="text/plain"/>
+            <action
+                android:name="android.intent.action.PROCESS_TEXT"/>
+            <data
+                android:mimeType="text/plain"/>
         </intent>
         <!-- url_launcher: open https links (Releases page) and email (Feedback). -->
         <intent>
-            <action android:name="android.intent.action.VIEW"/>
-            <data android:scheme="https"/>
+            <action
+                android:name="android.intent.action.VIEW"/>
+            <data
+                android:scheme="https"/>
         </intent>
         <intent>
-            <action android:name="android.intent.action.SENDTO"/>
-            <data android:scheme="mailto"/>
+            <action
+                android:name="android.intent.action.SENDTO"/>
+            <data
+                android:scheme="mailto"/>
         </intent>
     </queries>
 </manifest>

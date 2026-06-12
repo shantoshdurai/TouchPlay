@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TouchPlay Privacy Policy</title>
+    <style>
+        :root {
+            --bg: #0D0D14;
+            --surface: #14161F;
+            --primary: #6FB6FF;
+            --text-main: #FFFFFF;
+            --text-muted: rgba(255, 255, 255, 0.6);
+            --border: rgba(255, 255, 255, 0.12);
+        }
+        body {
+            background-color: var(--bg);
+            color: var(--text-main);
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            line-height: 1.6;
+            margin: 0;
+            padding: 0;
+            display: flex;
+            justify-content: center;
+        }
+        .container {
+            max-width: 600px;
+            margin: 40px 20px;
+            padding: 40px;
+            background-color: var(--surface);
+            border-radius: 20px;
+            border: 1px solid var(--border);
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.5);
+        }
+        .icon {
+            width: 48px;
+            height: 48px;
+            background-color: rgba(111, 182, 255, 0.15);
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-bottom: 24px;
+        }
+        .icon svg {
+            width: 24px;
+            height: 24px;
+            fill: var(--primary);
+        }
+        h1 {
+            font-size: 24px;
+            font-weight: 700;
+            margin: 0 0 8px 0;
+            letter-spacing: -0.5px;
+        }
+        h2 {
+            font-size: 16px;
+            font-weight: 600;
+            margin: 32px 0 12px 0;
+            color: var(--primary);
+        }
+        p {
+            color: var(--text-muted);
+            font-size: 15px;
+            margin: 0 0 16px 0;
+        }
+        .highlight {
+            background: rgba(111, 182, 255, 0.1);
+            border-left: 3px solid var(--primary);
+            padding: 12px 16px;
+            border-radius: 0 8px 8px 0;
+            color: var(--text-main);
+            font-size: 14px;
+            margin: 24px 0;
+        }
+        ul {
+            color: var(--text-muted);
+            padding-left: 20px;
+            margin: 0 0 16px 0;
+        }
+        li {
+            font-size: 15px;
+            margin-bottom: 8px;
+        }
+        strong {
+            color: var(--text-main);
+        }
+        a {
+            color: var(--primary);
+            text-decoration: none;
+        }
+        a:hover {
+            text-decoration: underline;
+        }
+        .footer {
+            margin-top: 40px;
+            padding-top: 24px;
+            border-top: 1px solid var(--border);
+            font-size: 13px;
+            color: var(--text-muted);
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="icon">
+            <svg viewBox="0 0 24 24">
+                <path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4zm0 10.99h7c-.53 4.12-3.28 7.79-7 8.94V12H5V6.3l7-3.11v8.8z"/>
+            </svg>
+        </div>
+        <h1>TouchPlay Privacy Policy</h1>
+        <p>Effective Date: June 12, 2026</p>
+        
+        <div class="highlight">
+            <strong>TL;DR:</strong> Your data stays on your network. TouchPlay has no analytics, no ads, and no tracking.
+        </div>
+
+        <h2>Direct Local Connection</h2>
+        <p>TouchPlay connects directly to the TouchPlay server on your own PC over your local Wi-Fi or USB tethering. All controller input, screen streams, camera frames, and transferred files travel exclusively between your phone and your PC.</p>
+        <p>Nothing is sent to us or any third party.</p>
+
+        <h2>Local Storage</h2>
+        <p>The app stores your settings (such as sensitivity, vibration preferences, and custom layouts) locally on your device. These settings are never backed up to our servers or synced to the cloud.</p>
+
+        <h2>Device Permissions</h2>
+        <p>TouchPlay requests permissions solely to function as your ultimate PC controller:</p>
+        <ul>
+            <li><strong>Camera:</strong> Accessed only when you actively use the "Virtual Cam" feature. Stops the moment you close it.</li>
+            <li><strong>Microphone:</strong> Used for in-game voice chat or streaming. Stops when you end the session.</li>
+            <li><strong>Storage/Photos:</strong> Accessed only if you actively transfer files between your phone and your PC.</li>
+        </ul>
+
+        <h2>Open Source</h2>
+        <p>TouchPlay is completely free and open. If you have any questions or want to verify our code, you can open an issue or inspect the source on our <a href="https://github.com/shantoshdurai/TouchPlay">GitHub repository</a>.</p>
+
+        <div class="footer">
+            Made for gamers, by gamers.
+        </div>
+    </div>
+</body>
+</html>

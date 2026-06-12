@@ -42,8 +42,8 @@ class SensitivitySettings {
     this.rightStickSensitivity = 1.8,
     this.deadZone              = 0.08,
     this.mouseSensitivity      = 18.0,
-    this.vibration             = false,
-    this.vibrationStrength     = 0.0,
+    this.vibration             = true,
+    this.vibrationStrength     = 1.0,
     this.joyRadius             = 1.0,
     this.gasSize               = 1.0,
     this.brakeSize             = 1.0,
@@ -104,6 +104,7 @@ class WebSocketService with WidgetsBindingObserver {
   bool get serverFull => _serverFull;
 
   String _deviceName = "Unknown Device";
+  String? _playerName;
 
   // Sensitivity
   final sensitivity = SensitivitySettings();
@@ -133,6 +134,7 @@ class WebSocketService with WidgetsBindingObserver {
     WidgetsBinding.instance.addObserver(this);
     final prefs = await SharedPreferences.getInstance();
     _manualIp = prefs.getString('manual_ip');
+    _playerName = prefs.getString('player_name');
     _deviceId = prefs.getString('device_id');
     if (_deviceId == null) {
       _deviceId = '${DateTime.now().millisecondsSinceEpoch}-${math.Random().nextInt(1000000)}';
@@ -419,7 +421,7 @@ class WebSocketService with WidgetsBindingObserver {
         _playerNumber  = (data['player'] as num?)?.toInt();
         _maxPlayers    = (data['maxPlayers'] as num?)?.toInt();
         _playerCtrl.add(_playerNumber);
-        send({'type': 'client_info', 'phone_name': _deviceName, 'device_id': _deviceId});
+        send(_clientInfo());
       } else if (data['type'] == 'rumble') {
         final large = (data['large'] as num?)?.toInt() ?? 0;
         final small = (data['small'] as num?)?.toInt() ?? 0;
@@ -466,6 +468,20 @@ class WebSocketService with WidgetsBindingObserver {
       if (_state != ConnectionState.connected) return;
       _sendPing();
     });
+  }
+
+  Map<String, dynamic> _clientInfo() => {
+        'type': 'client_info',
+        'phone_name': _deviceName,
+        'device_id': _deviceId,
+        if (_playerName != null) 'player_name': _playerName,
+      };
+
+  /// Called by PlayerProfile when the intro saves/changes the name, so the
+  /// PC's player list updates immediately (persistence lives in the profile).
+  void updatePlayerName(String name) {
+    _playerName = name;
+    if (_state == ConnectionState.connected) send(_clientInfo());
   }
 
   // ── Send ────────────────────────────────────────────────────────────────────
